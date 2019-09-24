@@ -7,41 +7,18 @@ import numpy as np
 import tensorflow as tf
 import python_speech_features as psf
 
+import utils
+
 FLAGS = flags.FLAGS
 
 flags.DEFINE_enum('dataset', None, ['common-voice'], 'Dataset to preprocess.')
 flags.DEFINE_string('data_dir', None, 'Dataset path.')
-flags.DEFINE_string('out_dir', None, 'Output path.')
+flags.DEFINE_string('out_dir', './data', 'Output path.')
 flags.DEFINE_boolean('sortagrad', True, 'Use sortagrad')
 
 # Required flags
 flags.mark_flag_as_required('dataset')
 flags.mark_flag_as_required('data_dir')
-flags.mark_flag_as_required('out_dir')
-
-# Special labels
-BLANK_LABEL = '<blank>'
-SOS_LABEL = '<sos>'
-
-def init_vocab():
-
-    """Generate a TF Example from features and labels
-
-    Args:
-        feats: Log-mel filter banks
-        seq_len: Length of feature sequence
-        labels: Target labels
-
-    Returns:
-        Serialized TF Example
-    """
-
-    alphabet = 'abcdefghijklmnopqrstuvwxyz '
-    specials = [BLANK_LABEL, SOS_LABEL]
-
-    return {c: i for c, i in zip(specials + [c for c in alphabet],
-                                 range(len(alphabet) + len(specials)))}
-    
 
 def clean_transcription(text):
 
@@ -68,8 +45,7 @@ def text_to_ids(text):
         List of char ids
     """
 
-    return np.array([VOCAB[SOS_LABEL]] + [VOCAB[c] for c in text
-                                          if c in VOCAB])
+    return np.array([VOCAB[c] for c in text if c in VOCAB])
 
 
 def audio_segment_to_array(audio_segment):
@@ -227,7 +203,7 @@ def main(_):
 
     # Initialize text to ids vocabulary
     global VOCAB
-    VOCAB = init_vocab()
+    VOCAB = utils.init_vocab()
 
     start_time = time.time()
 
