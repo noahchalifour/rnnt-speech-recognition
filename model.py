@@ -1,17 +1,6 @@
-import warprnnt_tensorflow
 import tensorflow as tf
 
 FEAT_SIZE = 80
-
-def rnnt_loss(input_lengths,
-              label_lengths):
-
-    def rnnt_loss_fn(y_true, y_pred):
-
-        return warprnnt_tensorflow.rnnt_loss(y_pred, 
-            y_true, input_lengths, label_lengths)
-
-    return rnnt_loss_fn
 
 def encoder(num_layers,
             layer_size):
@@ -64,8 +53,6 @@ def transducer(vocab_size,
 
     encoder_inputs = tf.keras.layers.Input(shape=(None, FEAT_SIZE))
     pred_inputs = tf.keras.layers.Input(shape=(None,))
-    input_lengths = tf.keras.layers.Input(shape=(None,))
-    label_lengths = tf.keras.layers.Input(shape=(None,))
 
     inputs_enc = encoder(encoder_layers, encoder_size)(encoder_inputs)
     pred_outputs = prediction_network(vocab_size, embedding_size,
@@ -79,7 +66,6 @@ def transducer(vocab_size,
     soft_out = tf.keras.layers.Dense(softmax_size, activation='softmax')(joint_outputs)
     predictions = tf.keras.layers.Dense(vocab_size, activation='softmax')(soft_out)
 
-    model = tf.keras.Model(inputs=[encoder_inputs, pred_inputs, input_lengths, label_lengths], outputs=predictions)
-    model.compile(optimizer='adam', loss=rnnt_loss(input_lengths, label_lengths), metrics=[])
+    model = tf.keras.Model(inputs=[encoder_inputs, pred_inputs], outputs=predictions)
 
     return model
