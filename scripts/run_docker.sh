@@ -4,7 +4,7 @@ declare -a default_args=("LD_LIBRARY_PATH" "LANG" "HOSTNAME"
                          "NVIDIA_VISIBLE_DEVICES" "PWD" "HOME"
                          "TERM" "CUDA_PKG_VERSION" "CUDA_VERSION"
                          "NVIDIA_DRIVER_CAPABILITIES" "SHLVL" "NVIDIA_REQUIRE_CUDA"
-                         "PATH" "_")
+                         "PATH" "_" "HOST_OS")
 
 unset IFS
 args=""
