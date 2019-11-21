@@ -4,14 +4,16 @@ import tensorflow as tf
 
 from . import common as cm_data_utils
 
-def load_audio(filename, datapath):
+def mp3_to_wav(filepath):
 
-    audio_segment = AudioSegment.from_mp3(
-        os.path.join(datapath, 'clips', filename))
+    audio_segment = AudioSegment.from_mp3(filepath)
+    audio_segment.export('{}.wav'.format(filepath[:-4]), format='wav')
+    os.remove(filepath)
 
-    samples = audio_segment.get_array_of_samples()
-    
-    return tf.constant(samples)
+
+def tf_file_exists(filepath):
+
+    return tf.py_function(lambda x: os.path.exists(x.numpy().decode('utf8')), inp=[filepath], Tout=tf.bool)
 
 
 def tf_parse_line(line, datapath):
@@ -20,11 +22,18 @@ def tf_parse_line(line, datapath):
 
     audio_fn = line_sections[1]
     transcription = line_sections[2]
+    audio_filepath = tf.strings.join([datapath, 'clips', audio_fn], '/')
 
-    audio_arr = tf.py_function(lambda x: load_audio(x.numpy().decode('utf8'), datapath),
-        inp=[audio_fn], Tout=tf.int32)
+    if tf.strings.regex_full_match(audio_fn, '(.*)\\.mp3'):
+        wav_filepath = tf.strings.substr(audio_filepath, 0, tf.strings.length(audio_filepath) - 4) + '.wav'
+        if tf.logical_not(tf_file_exists(wav_filepath)):
+            tf.py_function(lambda x: mp3_to_wav(x.numpy().decode('utf8')),
+                inp=[audio_filepath], Tout=[])
+        audio_filepath = wav_filepath
+        
+    audio, sr = cm_data_utils.tf_load_audio(audio_filepath)
 
-    return audio_arr, transcription
+    return audio, sr, transcription
 
 
 def _create_dataset(path, name, max_data=None):

@@ -2,13 +2,24 @@ from absl import logging
 import time
 import datetime
 import os
+import sys
+import glob
+import re
 import tensorflow as tf
-# import warprnnt_tensorflow
+
+_has_loss_func = False
+try:
+    from warprnnt_tensorflow import rnnt_loss
+    _has_loss_func = True
+except ImportError:
+    pass
 
 try:
-    from .utils.data import common as cmn_data_utils
+    from .utils.data.common import preprocess_dataset
+    from .evaluate import do_eval
 except ImportError:
-    from utils.data import common as cmn_data_utils
+    from utils.data.common import preprocess_dataset
+    from evaluate import do_eval
 
 def do_train(model, vocab, train_dataset, 
              optimizer, epochs, batch_size,
@@ -18,7 +29,7 @@ def do_train(model, vocab, train_dataset,
              shuffle_buffer_size=None,
              distribution_strategy=None, verbose=1):
 
-    train_dataset = cmn_data_utils.preprocess_dataset(train_dataset, vocab,
+    train_dataset = preprocess_dataset(train_dataset, vocab,
         batch_size=batch_size, shuffle_buffer_size=shuffle_buffer_size)
 
     train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -28,26 +39,33 @@ def do_train(model, vocab, train_dataset,
     @tf.function(input_signature=[tf.TensorSpec([None, None, None], tf.float32),
                                   tf.TensorSpec([None, None], tf.int32),
                                   tf.TensorSpec([None], tf.int32),
-                                  tf.TensorSpec([None], tf.int32)])
-    def train_step(fb, labels, fb_lengths, labels_lengths):
+                                  tf.TensorSpec([None], tf.int32),
+                                  tf.TensorSpec([2, None, None], tf.float32)])
+    def train_step(fb, labels, fb_lengths, labels_lengths, enc_state):
 
         pred_inp = labels[:, :-1]
         pred_out = labels[:, 1:]
 
         with tf.GradientTape() as tape:
-            predictions = model([fb, pred_inp])
-            loss = warprnnt_tensorflow.rnnt_loss(predictions,
-                                                 pred_out,
-                                                 fb_lengths,
-                                                 labels_lengths)
+            predictions, _ = model([fb, pred_inp, enc_state],
+                training=True)
+            if not tf.test.is_gpu_available() and _has_loss_func:
+                predictions = tf.nn.log_softmax(predictions)
+            if _has_loss_func:
+                loss = rnnt_loss(predictions, pred_out, fb_lengths, labels_lengths)
+            else:
+                loss = 0
+                if verbose:
+                    logging.info('Loss function not available, not computing gradients or optimizing.')
 
-        gradients = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        if _has_loss_func:
+            gradients = tape.gradient(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
         train_loss(loss)
         train_accuracy(pred_out, predictions)
 
-    global_step = 0
+    global_step = model._checkpoint_step
     train_summary_writer, eval_summary_writer = None, None
 
     if tb_log_dir is not None:
@@ -60,6 +78,8 @@ def do_train(model, vocab, train_dataset,
         train_summary_writer = tf.summary.create_file_writer(train_log_dir)
         eval_summary_writer = tf.summary.create_file_writer(eval_log_dir)
 
+    enc_state = model.initial_state(batch_size)
+
     for epoch in range(epochs):
 
         start = time.time()
@@ -71,9 +91,9 @@ def do_train(model, vocab, train_dataset,
 
             if distribution_strategy is not None:
                 distribution_strategy.experimental_run_v2(
-                    train_step, args=(fb, labels, fb_lengths, labels_lengths))
+                    train_step, args=(fb, labels, fb_lengths, labels_lengths, enc_state))
             else:
-                train_step(fb, labels, fb_lengths, labels_lengths)
+                train_step(fb, labels, fb_lengths, labels_lengths, enc_state)
 
             if steps_per_log is not None and global_step % steps_per_log == 0:
                 if verbose:
@@ -84,12 +104,12 @@ def do_train(model, vocab, train_dataset,
                         tf.summary.scalar('loss', train_loss.result(), step=global_step)
                         tf.summary.scalar('accuracy', train_accuracy.result(), step=global_step)
             
-            if checkpoint_path is not None and steps_per_checkpoint is not None and global_step % steps_per_checkpoint == 0:
+            if checkpoint_path is not None and steps_per_checkpoint is not None and global_step != 0 and global_step % steps_per_checkpoint == 0:
                 eval_loss = 'na'
                 if eval_dataset is not None:
                     if verbose:
                         logging.info('Evaluating model...')
-                    eval_loss, eval_acc = do_eval(model, encoder, 
+                    eval_loss, eval_acc = do_eval(model, vocab, 
                         eval_dataset, batch_size, shuffle_buffer_size,
                         distribution_strategy=distribution_strategy)
                     if verbose:
@@ -127,11 +147,12 @@ def do_train(model, vocab, train_dataset,
                             os.remove(f)
 
                     # Update checkpoint file
-                    with open(os.path.join(checkpoint_path, 'checkpoint'), 'w') as f:
-                        f.write('model_checkpoint_path: "{}"\nall_model_checkpoint_paths: "{}"'.format(
-                            sorted_ckpts[0][0], sorted_ckpts[0][0]))
-                    if verbose:
-                        logging.info('Updated best checkpoint to {}'.format(sorted_ckpts[0][0]))
+                    if len(sorted_ckpts) > 0:
+                        with open(os.path.join(checkpoint_path, 'checkpoint'), 'w') as f:
+                            f.write('model_checkpoint_path: "{}"\nall_model_checkpoint_paths: "{}"'.format(
+                                sorted_ckpts[0][0], sorted_ckpts[0][0]))
+                        if verbose:
+                            logging.info('Updated best checkpoint to {}'.format(sorted_ckpts[0][0]))
 
             global_step += 1
             tf.keras.backend.clear_session()
