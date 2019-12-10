@@ -52,8 +52,8 @@ def tf_mel_spectrograms(audio_arr, sr,
 
     linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
         num_mel_bins=n_mel_bins, num_spectrogram_bins=num_spec_bins, 
-        sample_rate=22050.0, 
-        # sample_rate=_sr,
+        # sample_rate=22050.0, 
+        sample_rate=_sr,
         lower_edge_hertz=hertz_low,
         upper_edge_hertz=hertz_high)
 

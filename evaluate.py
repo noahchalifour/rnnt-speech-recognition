@@ -12,10 +12,10 @@ try:
 except ImportError:
     from utils.data.common import preprocess_dataset
 
-def do_eval(model, vocab, dataset, batch_size, 
+def do_eval(model, dataset, batch_size, 
             shuffle_buffer_size=None, distribution_strategy=None):
 
-    _dataset = preprocess_dataset(dataset, vocab, batch_size, 
+    _dataset = preprocess_dataset(dataset, model.vocab, batch_size, 
         shuffle_buffer_size=shuffle_buffer_size)
 
     if distribution_strategy is not None:

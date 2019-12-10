@@ -21,7 +21,7 @@ except ImportError:
     from utils.data.common import preprocess_dataset
     from evaluate import do_eval
 
-def do_train(model, vocab, train_dataset, 
+def do_train(model, train_dataset, 
              optimizer, epochs, batch_size,
              eval_dataset=None, steps_per_checkpoint=None,
              checkpoint_path=None, steps_per_log=None,
@@ -29,7 +29,7 @@ def do_train(model, vocab, train_dataset,
              shuffle_buffer_size=None,
              distribution_strategy=None, verbose=1):
 
-    train_dataset = preprocess_dataset(train_dataset, vocab,
+    train_dataset = preprocess_dataset(train_dataset, model.vocab,
         batch_size=batch_size, shuffle_buffer_size=shuffle_buffer_size)
 
     train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -109,7 +109,7 @@ def do_train(model, vocab, train_dataset,
                 if eval_dataset is not None:
                     if verbose:
                         logging.info('Evaluating model...')
-                    eval_loss, eval_acc = do_eval(model, vocab, 
+                    eval_loss, eval_acc = do_eval(model, 
                         eval_dataset, batch_size, shuffle_buffer_size,
                         distribution_strategy=distribution_strategy)
                     if verbose:

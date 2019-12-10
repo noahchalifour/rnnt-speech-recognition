@@ -1,12 +1,14 @@
 from absl import app, logging, flags
 import os
 import json
+import pyaudio
+import numpy as np
 import tensorflow as tf
 
 from model import Transducer, load_model
 from train import do_train
 from evaluate import do_eval
-from transcribe import transcribe_file
+from transcribe import transcribe_file, transcribe_stream
 from utils import vocabulary
 from utils.data import common as cmn_data_utils
 import utils.data
@@ -19,15 +21,15 @@ def main(_):
     if os.path.exists(os.path.join(FLAGS.model_dir, 'config.json')):
 
         expect_partial = False
-        if FLAGS.mode in ['transcribe-file']:
+        if FLAGS.mode in ['transcribe-file', 'realtime']:
             expect_partial = True
 
-        model, vocab = load_model(FLAGS.model_dir,
+        model = load_model(FLAGS.model_dir,
             checkpoint=FLAGS.checkpoint, expect_partial=expect_partial)
 
     else:
 
-        if FLAGS.mode == 'eval' or FLAGS.mode == 'interactive':
+        if FLAGS.mode in ['eval', 'transcribe-file', 'realtime']:
             raise Exception('Model not found at path: {}'.format(
                 FLAGS.model_dir))
 
@@ -39,7 +41,7 @@ def main(_):
         vocab = vocabulary.init_vocab()
         vocabulary.save_vocab(vocab, os.path.join(FLAGS.model_dir, 'vocab'))
 
-        model = Transducer(vocab_size=len(vocab),
+        model = Transducer(vocab=vocab,
                            encoder_layers=FLAGS.encoder_layers,
                            encoder_size=FLAGS.encoder_size,
                            pred_net_layers=FLAGS.pred_net_layers,
@@ -47,8 +49,7 @@ def main(_):
                            joint_net_size=FLAGS.joint_net_size,
                            softmax_size=FLAGS.softmax_size)
 
-        with open(model_config_filepath, 'w') as model_config:
-            model_config.write(model.to_json())
+        model.save_config(model_config_filepath)
 
         logging.info('Initialized model from scratch.')
 
@@ -61,26 +62,74 @@ def main(_):
         distribution_strategy = tf.distribute.experimental.TPUStrategy(
             tpu_cluster_resolver=tpu_cluster_resolver)
 
-    # if FLAGS.mode == 'optimize':
-
-    #     model._set_inputs([tf.TensorSpec([None, None, None], dtype=tf.float32),
-    #                        tf.TensorSpec([None, None], dtype=tf.int32),
-    #                        tf.TensorSpec([2, None, None], dtype=tf.float32)])
+    if FLAGS.mode == 'export':
         
-    #     optmized_dir = './model/optimized'
-
-    #     converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    #     converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_SIZE]
+        saved_model_dir = os.path.join(FLAGS.model_dir, 'saved_model')
+        os.makedirs(saved_model_dir, exist_ok=True)
         
-    #     tflite_quant_model = converter.convert()
-    #     print(tflite_quant_model)
+        all_versions = [int(ver) for ver in os.listdir(saved_model_dir)]
+
+        if len(all_versions) > 0:
+            version = max(all_versions) + 1
+        else:
+            version = 1
+
+        export_path = os.path.join(saved_model_dir, str(version))
+        os.makedirs(export_path)
+
+        tf.saved_model.save(model, export_path, signatures={
+            'serving_default': model.predict
+        })
 
     elif FLAGS.mode == 'transcribe-file':
 
-        transcription = transcribe_file(model, vocab, FLAGS.input)
+        transcription = transcribe_file(model, FLAGS.input)
 
         print('Input file: {}'.format(FLAGS.input))
         print('Transcription: {}'.format(transcription))
+
+    elif FLAGS.mode == 'realtime':
+
+        audio_buf = []
+        last_result = None
+
+        def stream_callback(in_data, frame_count, time_info, status):
+            audio_buf.append(in_data)
+            return None, pyaudio.paContinue
+
+        def audio_gen():
+            while True:
+                if len(audio_buf) > 0:
+                    audio_data = audio_buf[0]
+                    audio_arr = np.frombuffer(audio_data, dtype=np.float32)
+                    yield audio_arr
+
+        FORMAT = pyaudio.paFloat32
+        CHANNELS = 1
+        RATE = 16000
+        CHUNK = 2048
+
+        audio = pyaudio.PyAudio()
+        stream = audio.open(format=FORMAT,
+                            channels=CHANNELS,
+                            rate=RATE,
+                            input=True,
+                            frames_per_buffer=CHUNK,
+                            stream_callback=stream_callback)
+        
+        stream.start_stream()
+
+        outputs = transcribe_stream(model, audio_gen(), RATE)
+
+        print('Transcribing live audio (press CTRL+C to stop)...')
+
+        for (output, is_final) in outputs:
+            if output != last_result and output != '' and not is_final:
+                print('Partial Result: {}'.format(output))
+                last_result = output
+            if is_final:
+                print('# Final Result: {}'.format(output))
+                last_result = None
 
     else:
 
@@ -98,7 +147,7 @@ def main(_):
 
             logging.info('Begin evaluation...')
 
-            loss, acc = do_eval(model, vocab, dev_dataset,
+            loss, acc = do_eval(model, dev_dataset,
                                 batch_size=FLAGS.batch_size,
                                 shuffle_buffer_size=FLAGS.shuffle_buffer_size,
                                 distribution_strategy=distribution_strategy)
@@ -113,7 +162,7 @@ def main(_):
             checkpoints_path = os.path.join(FLAGS.model_dir, 'checkpoints')
             os.makedirs(checkpoints_path, exist_ok=True)
 
-            do_train(model, vocab, train_dataset, optimizer,
+            do_train(model, train_dataset, optimizer,
                      FLAGS.epochs, FLAGS.batch_size,
                      eval_dataset=dev_dataset,
                      steps_per_checkpoint=FLAGS.steps_per_checkpoint,
@@ -130,7 +179,7 @@ def define_flags():
 
     FLAGS = flags.FLAGS
 
-    flags.DEFINE_enum('mode', None, ['train', 'eval', 'transcribe-file'], 'Mode to run in.')
+    flags.DEFINE_enum('mode', None, ['train', 'eval', 'transcribe-file', 'realtime', 'export'], 'Mode to run in.')
     flags.DEFINE_enum('dataset_name', None, ['common-voice'], 'Dataset to use.')
     flags.DEFINE_string('dataset_path', None, 'Dataset path.')
     flags.DEFINE_integer('max_data', None, 'Max size of data.')

@@ -5,29 +5,18 @@ try:
 except ImportError:
     from utils.data.common import tf_mel_spectrograms, tf_load_audio
 
-def do_inference(model, vocab, audio, sr, max_length=50):
+def do_inference(model, audio, sr, max_length=50):
 
     specs = tf_mel_spectrograms(audio, sr)
     expanded_specs = tf.expand_dims(specs, axis=0)
 
     output = tf.expand_dims([vocab['<s>']], axis=0)
 
-    @tf.function(input_signature=[tf.TensorSpec([1, None, 80], dtype=tf.float32),
-                                  tf.TensorSpec([1, None], dtype=tf.int32),
-                                  tf.TensorSpec([2, 1, None], dtype=tf.float32)])
-    def infer_step(enc_inp, pred_inp, enc_state):
-
-        predictions, new_enc_state = model([enc_inp, pred_inp, enc_state], 
-            training=False)
-        predictions = predictions[:, -1:, -1, :]
-
-        return tf.cast(tf.argmax(predictions, axis=-1), tf.int32), new_enc_state
-
     enc_state = model.initial_state(1)
 
     for _ in range(max_length):
 
-        predicted_id, enc_state = infer_step(expanded_specs, output, 
+        predicted_id, enc_state = model.predict(expanded_specs, output, 
             enc_state=enc_state)
 
         if predicted_id == vocab['</s>']:
@@ -38,20 +27,52 @@ def do_inference(model, vocab, audio, sr, max_length=50):
     return tf.squeeze(output[:, 1:], axis=0)
 
 
-def transcribe_file(model, vocab, filepath):
+def transcribe_file(model, filepath, max_length=50):
 
-    idx_to_c = tf.constant(list(vocab.keys()), dtype=tf.string)
     audio, sr = tf_load_audio(filepath)
+    result = ['<s>']
+    enc_state = model.initial_state(1)
+
+    audio = tf.squeeze(audio)
+
+    for _ in range(max_length):
     
-    result = do_inference(model, vocab, audio, sr)
-    transcript = ''
+        pred, enc_state = model.predict([audio], [sr], [result], [enc_state])
 
-    for c in result:
-        transcript += idx_to_c[c]
+        if pred[0] == '</s>':
+            break
 
-    return transcript.numpy().decode('utf8')
+        result += pred
+
+    return ''.join(result[1:])
 
 
-def transcribe_stream(model, vocab, stream):
+def transcribe_stream(model, stream, sr):
 
-    pass
+    output = ['<s>']
+    enc_state = model.initial_state(1)
+    _audio = []
+
+    for audio in stream:
+
+        if len(_audio):
+            _audio += audio
+        else:
+            _audio = audio
+
+        pred, enc_state = model.predict([_audio], [sr], [output],
+            enc_state=[enc_state])
+
+        if pred[0] == '</s>':
+
+            yield ''.join(output[1:]), True
+
+            output = ['<s>']
+            enc_state = model.initial_state(1)
+            _audio = []
+
+            continue
+
+        yield ''.join(output[1:]), False
+
+        output += pred

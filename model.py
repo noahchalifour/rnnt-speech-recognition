@@ -6,19 +6,17 @@ import tensorflow as tf
 
 try:
     from .utils.vocabulary import load_vocab
+    from .utils.data.common import tf_mel_spectrograms
 except ImportError:
     from utils.vocabulary import load_vocab
+    from utils.data.common import tf_mel_spectrograms
 
 def load_model(path, checkpoint=None, verbose=True, expect_partial=False):
 
     model_config_filepath = os.path.join(path, 'config.json')
-    vocab_filepath = os.path.join(path, 'vocab')
     checkpoints_path = os.path.join(path, 'checkpoints')
 
-    vocab = load_vocab(vocab_filepath)
-
-    with open(model_config_filepath, 'r') as model_config:
-        model = Transducer.from_json(model_config.read())
+    model = Transducer.load_json(model_config_filepath)
 
     if checkpoint is None:
         _checkpoint = tf.train.latest_checkpoint(checkpoints_path)
@@ -46,7 +44,7 @@ def load_model(path, checkpoint=None, verbose=True, expect_partial=False):
         if verbose:
             logging.info('Model restored from {}'.format(_checkpoint))
 
-    return model, vocab
+    return model
 
 
 def encoder(num_layers,
@@ -63,8 +61,8 @@ def encoder(num_layers,
     for i in range(num_layers):
         outputs, state_h, state_c = tf.keras.layers.LSTM(layer_size,
             return_sequences=True, return_state=True)(outputs, encoder_state)
-        # if i == tr_layer_index:
-        #     outputs = tf.keras.layers.Conv1D(layer_size, tr_layer_factor)(outputs)
+        if i == tr_layer_index:
+            outputs = tf.keras.layers.Conv1D(layer_size, tr_layer_factor)(outputs)
 
     new_state = tf.stack([state_h, state_c])
 
@@ -98,7 +96,7 @@ def joint_network(num_units):
 class Transducer(tf.keras.Model):
 
     def __init__(self,
-                 vocab_size, 
+                 vocab, 
                  embedding_size=64,
                  encoder_layers=8,
                  encoder_size=2048,
@@ -111,7 +109,9 @@ class Transducer(tf.keras.Model):
 
         super(Transducer, self).__init__()
 
-        self.vocab_size = vocab_size
+        self.vocab = vocab
+        self.vocab_size = len(vocab)
+
         self.embedding_size = embedding_size
         self.encoder_layers = encoder_layers
         self.encoder_size = encoder_size
@@ -123,6 +123,15 @@ class Transducer(tf.keras.Model):
         self.softmax_size = softmax_size
 
         self._checkpoint_step = 0
+
+        text_encoder_init = tf.lookup.KeyValueTensorInitializer(
+            keys=list(vocab.keys()), values=list(vocab.values()))
+        id_dec_init = tf.lookup.KeyValueTensorInitializer(
+            keys=list(vocab.values()), values=list(vocab.keys()))
+        self.vocab_table = tf.lookup.StaticHashTable(
+            text_encoder_init, default_value=0)
+        self.rev_vocab_table = tf.lookup.StaticHashTable(
+            id_dec_init, default_value='<blank>')
 
         self._encoder = encoder(num_layers=self.encoder_layers, 
                                 layer_size=self.encoder_size,
@@ -137,9 +146,14 @@ class Transducer(tf.keras.Model):
         self._proj = tf.keras.layers.Dense(self.vocab_size)
 
     @classmethod
-    def from_json(cls, json_str):
+    def load_json(cls, filepath):
 
-        return cls(**json.loads(json_str))
+        with open(filepath, 'r') as f:
+            json_dict = json.loads(f.read())
+
+        json_dict['vocab'] = load_vocab(os.path.join(os.path.dirname(filepath), json_dict['vocab']))
+
+        return cls(**json_dict)
 
     def call(self, inputs, training=True):
 
@@ -159,6 +173,36 @@ class Transducer(tf.keras.Model):
 
         return outputs, new_enc_state
 
+    @tf.function(input_signature=[tf.TensorSpec([1, None], dtype=tf.float32),
+                                  tf.TensorSpec([1], dtype=tf.int32),
+                                  tf.TensorSpec([1, None], dtype=tf.string),
+                                  tf.TensorSpec([1, 2, 1, None], dtype=tf.float32)])
+    def predict(self, audio, sr, pred_inp, enc_state):
+
+        # NOTE: Can only run predict of first input
+
+        _audio = audio[0]
+        _sr = sr[0]
+        _enc_state = enc_state[0]
+
+        pred_inp_enc = self.vocab_table.lookup(pred_inp)
+
+        specs = tf_mel_spectrograms(_audio, _sr)
+        expanded_specs = tf.expand_dims(specs, axis=0)
+
+        expanded_specs.set_shape([1, None, 80])
+
+        predictions, new_enc_state = self.call([expanded_specs, pred_inp_enc, _enc_state], 
+            training=False)
+        predictions = predictions[:, -1, -1, :]
+        predictions = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
+
+        pred_char = self.rev_vocab_table.lookup(predictions)
+        pred_char = tf.strings.regex_replace(pred_char, '<blank>', '')
+        pred_char = tf.strings.regex_replace(pred_char, '<space>', ' ')
+
+        return pred_char, new_enc_state
+
     def initial_state(self, batch_size):
 
         encoder_state = tf.stack([tf.zeros((batch_size, self.encoder_size)),
@@ -169,12 +213,19 @@ class Transducer(tf.keras.Model):
     def to_json(self):
 
         return json.dumps({
-            'vocab_size': self.vocab_size,
+            'vocab': './vocab',
             'embedding_size': self.embedding_size,
             'encoder_layers': self.encoder_layers,
             'encoder_size': self.encoder_size,
+            'encoder_tr_index': self.encoder_tr_index,
+            'encoder_tr_factor': self.encoder_tr_factor,
             'pred_net_layers': self.pred_net_layers,
             'pred_net_size': self.pred_net_size,
             'joint_net_size': self.joint_net_size,
             'softmax_size': self.softmax_size
         })
+
+    def save_config(self, filepath):
+
+        with open(filepath, 'w') as model_config:
+            model_config.write(self.to_json())
