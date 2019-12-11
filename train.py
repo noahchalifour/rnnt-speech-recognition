@@ -49,7 +49,7 @@ def do_train(model, train_dataset,
         with tf.GradientTape() as tape:
             predictions, _ = model([fb, pred_inp, enc_state],
                 training=True)
-            if not tf.test.is_gpu_available() and _has_loss_func:
+            if len(tf.config.list_physical_devices('GPU')) == 0 and _has_loss_func:
                 predictions = tf.nn.log_softmax(predictions)
             if _has_loss_func:
                 loss = rnnt_loss(predictions, pred_out, fb_lengths, labels_lengths)
