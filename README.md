@@ -1,6 +1,6 @@
-# RNN-T Speech Recognition
+# RNN-Transducer Speech Recognition
 
-End-to-end speech recognition using RNN Transducer in Tensorflow 2.0
+End-to-end speech recognition using RNN-Transducer in Tensorflow 2.0
 
 ## Overview
 
@@ -104,7 +104,7 @@ To setup your environment, run the following commands:
 ```
 git clone --recurse https://github.com/noahchalifour/rnnt-speech-recognition.git
 cd rnnt-speech-recognition
-pip install tensorflow==2.0.0 # or tensorflow-gpu==2.0.0 for GPU support
+pip install tf-nightly # or tf-nightly-gpu for GPU support
 pip install -r requirements.txt
 ```
 
@@ -141,6 +141,38 @@ docker run -d --name rnnt-speech-recognition \
     -e DATASET_NAME common-voice \
     -e DATASET_PATH <path to your dataset> \
     noahchalifour/rnnt-speech-recognition
+```
+
+## Evaluation
+
+To run evaluation, use the following command:
+
+```
+python run_rnnt.py \
+    --mode eval \
+    --dataset_name common-voice \
+    --dataset_path <path to your dataset>
+```
+
+## Inference
+
+### Transcribing a WAV file
+
+To transcribe a WAV file, run the following command:
+
+```
+python run_rnnt.py \
+    --mode transcribe-file \
+    --input <path to wav file>
+```
+
+### Real-time transcription
+
+To run real-time transcription using your computer microphone, run the following command:
+
+```
+python run_rnnt.py \
+    --mode realtime
 ```
 
 ## Author
