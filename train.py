@@ -63,7 +63,7 @@ def do_train(model, train_dataset,
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
         train_loss(loss)
-        train_accuracy(pred_out, predictions)
+        train_accuracy(pred_out, predictions[:, -1, :, :])
 
     global_step = model._checkpoint_step
     train_summary_writer, eval_summary_writer = None, None

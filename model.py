@@ -53,7 +53,7 @@ def encoder(num_layers,
             tr_layer_factor=2):
 
     encoder_inp = tf.keras.layers.Input(shape=(None, 80))
-    encoder_state_inp = tf.keras.layers.Input(shape=(1, None), batch_size=2)
+    encoder_state_inp = tf.keras.layers.Input(shape=(None, None), batch_size=2)
 
     encoder_state = tf.unstack(encoder_state_inp)
 
