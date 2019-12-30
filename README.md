@@ -99,6 +99,8 @@ run_rnnt.py:
 
 ## Getting Started
 
+> **_NOTE:_** If you are not training using docker you must run the following commands + setup the loss function (instructions for this can be found in `warp-transducer/tensorflow_binding`)
+
 To setup your environment, run the following commands:
 
 ```
