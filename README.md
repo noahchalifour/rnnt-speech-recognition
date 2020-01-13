@@ -102,7 +102,7 @@ To setup your environment, run the following commands:
 ```
 git clone --recurse https://github.com/noahchalifour/rnnt-speech-recognition.git
 cd rnnt-speech-recognition
-pip install tensorflow==2.1.0rc2 # or tensorflow-gpu==2.1.0rc2 for GPU support
+pip install tensorflow==2.1.0 # or tensorflow-gpu==2.1.0 for GPU support
 pip install -r requirements.txt
 ```
 
