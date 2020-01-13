@@ -72,7 +72,7 @@ def preprocess_dataset(dataset, vocab, batch_size,
     ), num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     _dataset = _dataset.map(lambda audio, labels: (
-        audio, labels, tf.shape(audio)[0], tf.shape(labels)[0] - 2),
+        audio, labels, tf.shape(audio)[0] - 1, tf.shape(labels)[0] - 2),
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     _dataset = _dataset.padded_batch(
