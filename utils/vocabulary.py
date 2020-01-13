@@ -1,20 +1,23 @@
 def init_vocab():
 
     alphabet = "abcdefghijklmnopqrstuvwxyz'"
-    alphabet_c = ['<blank>', '<space>', '<s>', '</s>'] + [c for c in alphabet]
+    alphabet_c = ['', ' ', '<s>', '</s>'] + [c for c in alphabet]
 
-    return {alphabet_c[i]: i for i in range(len(alphabet_c))}
+    return alphabet_c
 
 
 def load_vocab(filepath):
 
-    vocab = {}
+    vocab = []
 
     with open(filepath, 'r') as f:
         for line in f:
-            _line = line.strip().strip('\n')
-            line_sep = _line.split(' ')
-            vocab[line_sep[0]] = int(line_sep[1])
+            line = line.strip().strip('\n')
+            if line == '<blank>':
+                line = ''
+            elif line == '<space>':
+                line = ' '
+            vocab.append(line)
 
     return vocab
 
@@ -22,5 +25,9 @@ def load_vocab(filepath):
 def save_vocab(vocab, filepath):
 
     with open(filepath, 'w') as f:
-        for k, v in vocab.items():
-            f.write('{} {}\n'.format(k, v))
+        for c in vocab:
+            if c == '':
+                c = '<blank>'
+            elif c == ' ':
+                c = '<space>'
+            f.write('{}\n'.format(c))

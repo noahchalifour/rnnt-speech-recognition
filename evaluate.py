@@ -26,7 +26,7 @@ def do_eval(model, dataset, batch_size,
     eval_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(
         name='eval_accuracy')
 
-    @tf.function(input_signature=[tf.TensorSpec([None, None, None], tf.float32),
+    @tf.function(input_signature=[tf.TensorSpec([None, None, 80], tf.float32),
                                   tf.TensorSpec([None, None], tf.int32),
                                   tf.TensorSpec([None], tf.int32),
                                   tf.TensorSpec([None], tf.int32),

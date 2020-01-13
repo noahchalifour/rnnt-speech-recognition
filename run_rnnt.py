@@ -13,6 +13,16 @@ from utils import vocabulary
 from utils.data import common as cmn_data_utils
 import utils.data
 
+
+def load_datasets():
+
+    if FLAGS.dataset_name == 'common-voice':
+        data_utils = utils.data.common_voice
+
+    return data_utils.create_datasets(FLAGS.dataset_path,
+        max_data=FLAGS.max_data)
+
+
 def main(_):
 
     logging.info('Running with parameters:')
@@ -21,7 +31,7 @@ def main(_):
     if os.path.exists(os.path.join(FLAGS.model_dir, 'config.json')):
 
         expect_partial = False
-        if FLAGS.mode in ['transcribe-file', 'realtime']:
+        if FLAGS.mode in ['transcribe-file', 'realtime', 'export']:
             expect_partial = True
 
         model = load_model(FLAGS.model_dir,
@@ -45,7 +55,6 @@ def main(_):
                            encoder_layers=FLAGS.encoder_layers,
                            encoder_size=FLAGS.encoder_size,
                            pred_net_layers=FLAGS.pred_net_layers,
-                           pred_net_size=FLAGS.pred_net_size,
                            joint_net_size=FLAGS.joint_net_size,
                            softmax_size=FLAGS.softmax_size)
 
@@ -64,22 +73,58 @@ def main(_):
 
     if FLAGS.mode == 'export':
         
-        saved_model_dir = os.path.join(FLAGS.model_dir, 'saved_model')
-        os.makedirs(saved_model_dir, exist_ok=True)
+        # saved_model_dir = os.path.join(FLAGS.model_dir, 'saved_model')
+        # os.makedirs(saved_model_dir, exist_ok=True)
         
-        all_versions = [int(ver) for ver in os.listdir(saved_model_dir)]
+        # all_versions = [int(ver) for ver in os.listdir(saved_model_dir)]
 
-        if len(all_versions) > 0:
-            version = max(all_versions) + 1
-        else:
-            version = 1
+        # if len(all_versions) > 0:
+        #     version = max(all_versions) + 1
+        # else:
+        #     version = 1
 
-        export_path = os.path.join(saved_model_dir, str(version))
-        os.makedirs(export_path)
+        # export_path = os.path.join(saved_model_dir, str(version))
+        # os.makedirs(export_path)
 
-        tf.saved_model.save(model, export_path, signatures={
-            'serving_default': model.predict
-        })
+        # tf.saved_model.save(model, export_path, signatures={
+        #     'serving_default': model.predict
+        # })
+
+        # print(model.predict(tf.zeros((1, 1024)), tf.constant([16000]), tf.constant(['hell']), tf.zeros((1, 2, 1, 2048))))
+
+        tflite_dir = os.path.join(FLAGS.model_dir, 'lite')
+        os.makedirs(tflite_dir, exist_ok=True)
+
+        concrete_func = model.predict.get_concrete_function(
+            audio=tf.TensorSpec([1, 1024], dtype=tf.float32),
+            sr=tf.TensorSpec([1], dtype=tf.int32),
+            pred_inp=tf.TensorSpec([1], dtype=tf.string),
+            enc_state=tf.TensorSpec([1, 2, 1, model.encoder_size], dtype=tf.float32))
+
+        converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_func])
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS,
+                                               tf.lite.OpsSet.SELECT_TF_OPS]
+        converter.experimental_new_converter = True
+        converter.experimental_new_quantizer = True
+        converter.allow_custom_ops = True
+
+        # def representative_dataset_gen():
+        #     dataset, _ = load_datasets()
+        #     for i in range(10):
+        #         yield [next(dataset)]
+
+        # converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        # converter.representative_dataset = representative_dataset_gen
+        # converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+        # converter.inference_input_type = tf.uint8
+        # converter.inference_output_type = tf.uint8
+
+        tflite_quant_model = converter.convert()
+        
+        with open(os.path.join(tflite_dir, 'model.tflite'), 'wb') as f:
+            f.write(tflite_quant_model)
+
+        print('Exported model to TFLite.')
 
     elif FLAGS.mode == 'transcribe-file':
 
@@ -133,15 +178,14 @@ def main(_):
 
     else:
 
-        if FLAGS.dataset_name == 'common-voice':
-            data_utils = utils.data.common_voice
-
-        train_dataset, dev_dataset = data_utils.create_datasets(FLAGS.dataset_path,
-            max_data=FLAGS.max_data)
+        train_dataset, dev_dataset = load_datasets()
 
         if dev_dataset is None:
             dev_dataset = train_dataset.take(FLAGS.eval_size)
             train_dataset = train_dataset.skip(FLAGS.eval_size)
+
+        if FLAGS.eval_size:
+            dev_dataset = dev_dataset.take(FLAGS.eval_size)
 
         if FLAGS.mode == 'eval':
 
@@ -200,7 +244,6 @@ def define_flags():
     flags.DEFINE_integer('encoder_layers', 8, 'Number of encoder layers.')
     flags.DEFINE_integer('encoder_size', 2048, 'Units per encoder layer.')
     flags.DEFINE_integer('pred_net_layers', 2, 'Number of prediction network layers.')
-    flags.DEFINE_integer('pred_net_size', 2048, 'Units per prediction network layer.')
     flags.DEFINE_integer('joint_net_size', 640, 'Joint network units.')
     flags.DEFINE_integer('softmax_size', 4096, 'Units in softmax layer.')
 

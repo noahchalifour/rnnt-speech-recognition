@@ -15,15 +15,15 @@ def _normalize_text(text):
 def encode_text(text, vocab):
 
     norm_text = _normalize_text(text)
-    encoded = [vocab['<s>']]
+    encoded = [vocab.index('<s>')]
 
     for c in norm_text:
         if c == ' ':
             c = '<space>'
         if c in vocab:
-            encoded.append(vocab[c])
+            encoded.append(vocab.index(c))
     
-    encoded.append(vocab['</s>'])
+    encoded.append(vocab.index('</s>'))
 
     return tf.constant(encoded)
 

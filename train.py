@@ -36,7 +36,7 @@ def do_train(model, train_dataset,
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(
         name='train_accuracy')
 
-    @tf.function(input_signature=[tf.TensorSpec([None, None, None], tf.float32),
+    @tf.function(input_signature=[tf.TensorSpec([None, None, 80], tf.float32),
                                   tf.TensorSpec([None, None], tf.int32),
                                   tf.TensorSpec([None], tf.int32),
                                   tf.TensorSpec([None], tf.int32),

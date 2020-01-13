@@ -11,6 +11,7 @@ except ImportError:
     from utils.vocabulary import load_vocab
     from utils.data.common import tf_mel_spectrograms
 
+
 def load_model(path, checkpoint=None, verbose=True, expect_partial=False):
 
     model_config_filepath = os.path.join(path, 'config.json')
@@ -47,50 +48,80 @@ def load_model(path, checkpoint=None, verbose=True, expect_partial=False):
     return model
 
 
-def encoder(num_layers,
-            layer_size,
-            tr_layer_index=None,
-            tr_layer_factor=2):
+class Encoder(tf.keras.Model):
 
-    encoder_inp = tf.keras.layers.Input(shape=(None, 80))
-    encoder_state_inp = tf.keras.layers.Input(shape=(None, None), batch_size=2)
+    def __init__(self,
+                 num_layers,
+                 d_model,
+                 reduction_index=None,
+                 reduction_factor=2):
 
-    encoder_state = tf.unstack(encoder_state_inp)
+        super(Encoder, self).__init__()
 
-    outputs = encoder_inp
-    for i in range(num_layers):
-        outputs, state_h, state_c = tf.keras.layers.LSTM(layer_size,
-            return_sequences=True, return_state=True)(outputs, encoder_state)
-        if i == tr_layer_index:
-            outputs = tf.keras.layers.Conv1D(layer_size, tr_layer_factor)(outputs)
+        self.num_layers = num_layers
+        self.d_model = d_model
+        self.reduction_index = reduction_index
+        self.reduction_factor = reduction_factor
 
-    new_state = tf.stack([state_h, state_c])
+        rnn_cell = lambda: tf.compat.v1.nn.rnn_cell.LSTMCell(self.d_model,
+            num_proj=(self.d_model // 2))
+        self.rnn_layers = [tf.keras.layers.RNN(rnn_cell(), return_sequences=True, return_state=True)
+                           for _ in range(self.num_layers)]
+        self.reduction_layer = tf.keras.layers.Conv1D(self.d_model // 2, self.reduction_factor)
+        self.layer_norm = tf.keras.layers.LayerNormalization()
 
-    return tf.keras.Model(inputs=[encoder_inp, encoder_state_inp], outputs=[outputs, new_state])
+    def call(self, inputs, state):
+
+        outputs = inputs
+
+        next_state = tf.unstack(state)
+        next_state[1] = next_state[1][:, :(self.d_model // 2)]
+
+        for i in range(self.num_layers):
+
+            # outputs, next_state = tf.compat.v1.nn.static_rnn(self.rnn_cell,
+            #     outputs, initial_state=next_state)
+            outputs, state_h, state_c = self.rnn_layers[i](outputs, next_state)
+            outputs = self.layer_norm(outputs)
+
+            next_state = [state_h, state_c]
+            
+            if i == self.reduction_index:
+                outputs = self.reduction_layer(outputs)
+
+        return outputs, next_state
 
 
-def prediction_network(vocab_size,
-                       embedding_size,
-                       num_layers,
-                       layer_size):
+class PredictionNetwork(tf.keras.Model):
 
-    inputs = tf.keras.layers.Input(shape=(None,))
+    def __init__(self, 
+                 vocab_size,
+                 embedding_size,
+                 num_layers,
+                 layer_size):
 
-    embed = tf.keras.layers.Embedding(vocab_size, embedding_size)(inputs)
+        super(PredictionNetwork, self).__init__()
 
-    x = embed
-    for _ in range(num_layers):
-        x = tf.keras.layers.LSTM(layer_size,
-            return_sequences=True)(x)
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.num_layers = num_layers
+        self.layer_size = layer_size
 
-    return tf.keras.Model(inputs=inputs, outputs=x)
+        self.embed = tf.keras.layers.Embedding(self.vocab_size, self.embedding_size)
+        self.rnn_layers = [tf.keras.layers.LSTM(self.layer_size, return_sequences=True)
+                           for _ in range(self.num_layers)]
+        self.layer_norm = tf.keras.layers.LayerNormalization()
 
+    def call(self, inputs):
 
-def joint_network(num_units):
+        embedded = self.embed(inputs)
+        
+        outputs = embedded
+        for i in range(self.num_layers):
+            outputs = self.rnn_layers[i](outputs)
+            outputs = self.layer_norm(outputs)
 
-    return tf.keras.models.Sequential([
-        tf.keras.layers.Dense(num_units)
-    ])
+        return outputs
 
 
 class Transducer(tf.keras.Model):
@@ -103,14 +134,16 @@ class Transducer(tf.keras.Model):
                  encoder_tr_index=1,
                  encoder_tr_factor=2,
                  pred_net_layers=2,
-                 pred_net_size=2048,
                  joint_net_size=640,
                  softmax_size=4096):
 
         super(Transducer, self).__init__()
 
-        self.vocab = vocab
         self.vocab_size = len(vocab)
+        self.vocab = vocab
+        
+        self._vocab_t = tf.constant(vocab)
+        self._vocab_hash = tf.reduce_sum(tf.strings.unicode_decode(self._vocab_t, 'UTF-8'), axis=1)
 
         self.embedding_size = embedding_size
         self.encoder_layers = encoder_layers
@@ -118,30 +151,23 @@ class Transducer(tf.keras.Model):
         self.encoder_tr_index = encoder_tr_index
         self.encoder_tr_factor = encoder_tr_factor
         self.pred_net_layers = pred_net_layers
-        self.pred_net_size = pred_net_size
+        self.pred_net_size = encoder_size // 2
         self.joint_net_size = joint_net_size
         self.softmax_size = softmax_size
 
         self._checkpoint_step = 0
 
-        text_encoder_init = tf.lookup.KeyValueTensorInitializer(
-            keys=list(vocab.keys()), values=list(vocab.values()))
-        id_dec_init = tf.lookup.KeyValueTensorInitializer(
-            keys=list(vocab.values()), values=list(vocab.keys()))
-        self.vocab_table = tf.lookup.StaticHashTable(
-            text_encoder_init, default_value=0)
-        self.rev_vocab_table = tf.lookup.StaticHashTable(
-            id_dec_init, default_value='<blank>')
+        self.encoder = Encoder(num_layers=self.encoder_layers,
+                               d_model=self.encoder_size,
+                               reduction_index=self.encoder_tr_index,
+                               reduction_factor=self.encoder_tr_factor)
 
-        self._encoder = encoder(num_layers=self.encoder_layers, 
-                                layer_size=self.encoder_size,
-                                tr_layer_index=self.encoder_tr_index,
-                                tr_layer_factor=self.encoder_tr_factor)
-
-        self._pred_net = prediction_network(self.vocab_size, self.embedding_size,
-            self.pred_net_layers, self.pred_net_size)
+        self.prediction_network = PredictionNetwork(vocab_size=self.vocab_size,
+                                                    embedding_size=self.embedding_size,
+                                                    num_layers=self.pred_net_layers,
+                                                    layer_size=self.pred_net_size)
         
-        self._joint_net = joint_network(self.joint_net_size)
+        self._joint_net = tf.keras.layers.Dense(self.joint_net_size)
         self._softmax = tf.keras.layers.Dense(self.softmax_size, activation='softmax')
         self._proj = tf.keras.layers.Dense(self.vocab_size)
 
@@ -158,10 +184,11 @@ class Transducer(tf.keras.Model):
     def call(self, inputs, training=True):
 
         encoder_inp, pred_inp, encoder_state = inputs
-        inputs_enc, new_enc_state = self._encoder([encoder_inp, encoder_state], 
+
+        inputs_enc, new_enc_state = self.encoder(encoder_inp, encoder_state, 
             training=training)
 
-        pred_outputs = self._pred_net(pred_inp, training=training)
+        pred_outputs = self.prediction_network(pred_inp)
 
         joint_inp = (tf.expand_dims(inputs_enc, 2)      # [B, T, V] => [B, T, 1, V]
             + tf.expand_dims(pred_outputs, 1))    # [B, U, V] => [B, 1, U, V]
@@ -173,10 +200,7 @@ class Transducer(tf.keras.Model):
 
         return outputs, new_enc_state
 
-    @tf.function(input_signature=[tf.TensorSpec([1, None], dtype=tf.float32),
-                                  tf.TensorSpec([1], dtype=tf.int32),
-                                  tf.TensorSpec([1, None], dtype=tf.string),
-                                  tf.TensorSpec([1, 2, 1, None], dtype=tf.float32)])
+    @tf.function
     def predict(self, audio, sr, pred_inp, enc_state):
 
         # NOTE: Can only run predict of first input
@@ -185,7 +209,14 @@ class Transducer(tf.keras.Model):
         _sr = sr[0]
         _enc_state = enc_state[0]
 
-        pred_inp_enc = self.vocab_table.lookup(pred_inp)
+        pred_inp_c = tf.strings.bytes_split(pred_inp).flat_values
+        pred_inp_uni = tf.strings.unicode_decode(pred_inp_c, 'UTF-8').flat_values
+        pred_inp_r = tf.expand_dims(pred_inp_uni, axis=-1)
+
+        pred_inp_enc = tf.concat([[0],
+                                 tf.where(tf.equal(pred_inp_r, self._vocab_hash))[:, -1]],
+            axis=0)
+        pred_inp_enc = tf.expand_dims(pred_inp_enc, axis=0)
 
         specs = tf_mel_spectrograms(_audio, _sr)
         expanded_specs = tf.expand_dims(specs, axis=0)
@@ -197,16 +228,15 @@ class Transducer(tf.keras.Model):
         predictions = predictions[:, -1, -1, :]
         predictions = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
 
-        pred_char = self.rev_vocab_table.lookup(predictions)
-        pred_char = tf.strings.regex_replace(pred_char, '<blank>', '')
-        pred_char = tf.strings.regex_replace(pred_char, '<space>', ' ')
+        pred_hash = [tf.expand_dims(self._vocab_hash[predictions[0]], axis=0)]
+        pred_char = tf.strings.unicode_encode(pred_hash, 'UTF-8')
 
-        return pred_char, new_enc_state
+        return pred_char, new_enc_state[0], new_enc_state[1]
 
     def initial_state(self, batch_size):
 
-        encoder_state = tf.stack([tf.zeros((batch_size, self.encoder_size)),
-                                  tf.zeros((batch_size, self.encoder_size))])
+        encoder_state = [tf.zeros((batch_size, self.encoder_size)),
+                         tf.zeros((batch_size, self.encoder_size))]
 
         return encoder_state
 
@@ -220,7 +250,6 @@ class Transducer(tf.keras.Model):
             'encoder_tr_index': self.encoder_tr_index,
             'encoder_tr_factor': self.encoder_tr_factor,
             'pred_net_layers': self.pred_net_layers,
-            'pred_net_size': self.pred_net_size,
             'joint_net_size': self.joint_net_size,
             'softmax_size': self.softmax_size
         })
