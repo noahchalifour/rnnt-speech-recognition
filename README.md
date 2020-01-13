@@ -72,10 +72,6 @@ run_rnnt.py:
     (default: '2')
     (an integer)
 
-  --pred_net_size: Units per prediction network layer.
-    (default: '2048')
-    (an integer)
-
   --shuffle_buffer_size: Shuffle buffer size.
     (an integer)
 
