@@ -136,8 +136,8 @@ You can also train your model in a docker container based on the Tensorflow dock
 ```
 docker run -d --name rnnt-speech-recognition \
     -e MODE=train \
-    -e DATASET_NAME common-voice \
-    -e DATASET_PATH <path to your dataset> \
+    -e DATASET_NAME=common-voice \
+    -e DATASET_PATH=<path to your dataset> \
     noahchalifour/rnnt-speech-recognition
 ```
 
