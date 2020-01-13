@@ -1,7 +1,6 @@
 from absl import app, logging, flags
 import os
 import json
-import pyaudio
 import numpy as np
 import tensorflow as tf
 
@@ -134,6 +133,8 @@ def main(_):
         print('Transcription: {}'.format(transcription))
 
     elif FLAGS.mode == 'realtime':
+
+        import pyaudio
 
         audio_buf = []
         last_result = None
