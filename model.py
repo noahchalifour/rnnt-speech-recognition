@@ -1,260 +1,102 @@
-from absl import logging
-import json
-import os
-import re
 import tensorflow as tf
 
-try:
-    from .utils.vocabulary import load_vocab
-    from .utils.data.common import tf_mel_spectrograms
-except ImportError:
-    from utils.vocabulary import load_vocab
-    from utils.data.common import tf_mel_spectrograms
+from utils.loss import get_loss_fn
+from hparams import *
 
 
-def load_model(path, checkpoint=None, verbose=True, expect_partial=False):
+def encoder(specs_shape,
+            num_layers,
+            d_model,
+            reduction_index,
+            reduction_factor,
+            stateful=False):
 
-    model_config_filepath = os.path.join(path, 'config.json')
-    checkpoints_path = os.path.join(path, 'checkpoints')
+    mel_specs = tf.keras.Input(shape=specs_shape, dtype=tf.float32)
 
-    model = Transducer.load_json(model_config_filepath)
+    rnn_cell = lambda: tf.compat.v1.nn.rnn_cell.LSTMCell(d_model,
+        num_proj=(d_model // 2))
 
-    if checkpoint is None:
-        _checkpoint = tf.train.latest_checkpoint(checkpoints_path)
-    else:
-        _checkpoint = os.path.join(checkpoints_path, checkpoint)
+    outputs = mel_specs
 
-    if _checkpoint is None:
+    for i in range(num_layers):
 
-        if verbose:
-            logging.info('Model restored without checkpoint.')
+        rnn_layer = tf.keras.layers.RNN(rnn_cell(), 
+            return_sequences=True, stateful=stateful)
+        outputs = rnn_layer(outputs)
+        outputs = tf.keras.layers.LayerNormalization()(outputs)
 
-    else:
+        if i == reduction_index:
+            outputs = tf.keras.layers.Conv1D(d_model // 2, 
+                reduction_factor)(outputs)
 
-        if expect_partial:
-            model.load_weights(_checkpoint).expect_partial()
-        else:
-            model.load_weights(_checkpoint)
+    return tf.keras.Model(inputs=[mel_specs], 
+        outputs=[outputs])
 
-        try:    
-            model._checkpoint_step = int(re.findall(r'ckpt_(\d+)_', _checkpoint)[0])
-        except Exception:
-            if verbose:
-                logging.warn('Could not determine checkpoint step, defaulting to 0.')
 
-        if verbose:
-            logging.info('Model restored from {}'.format(_checkpoint))
+def prediction_network(vocab_size,
+                       embedding_size,
+                       num_layers,
+                       layer_size):
 
-    return model
+    inputs = tf.keras.Input(shape=[None], dtype=tf.int32)
 
+    embed = tf.keras.layers.Embedding(vocab_size, 
+        embedding_size)(inputs)
+    
+    outputs = embed
 
-class Encoder(tf.keras.Model):
+    for _ in range(num_layers):
 
-    def __init__(self,
-                 num_layers,
-                 d_model,
-                 reduction_index=None,
-                 reduction_factor=2):
+        outputs = tf.keras.layers.LSTM(layer_size, 
+            return_sequences=True)(outputs)
+        outputs = tf.keras.layers.LayerNormalization()(outputs)
 
-        super(Encoder, self).__init__()
+    return tf.keras.Model(inputs=[inputs], outputs=[outputs])
 
-        self.num_layers = num_layers
-        self.d_model = d_model
-        self.reduction_index = reduction_index
-        self.reduction_factor = reduction_factor
 
-        rnn_cell = lambda: tf.compat.v1.nn.rnn_cell.LSTMCell(self.d_model,
-            num_proj=(self.d_model // 2))
-        self.rnn_layers = [tf.keras.layers.RNN(rnn_cell(), return_sequences=True, return_state=True)
-                           for _ in range(self.num_layers)]
-        self.reduction_layer = tf.keras.layers.Conv1D(self.d_model // 2, self.reduction_factor)
-        self.layer_norm = tf.keras.layers.LayerNormalization()
+def build_keras_model(vocab_size,
+                      hparams,
+                      training=True):
 
-    def call(self, inputs, state):
+    specs_shape = [None, hparams[HP_MEL_BINS]]
 
-        outputs = inputs
+    mel_specs = tf.keras.Input(shape=specs_shape, 
+        dtype=tf.float32, name='mel_specs')
+    pred_inp = tf.keras.Input(shape=[None], dtype=tf.int32,
+        name='pred_inp')
+    spec_lengths = tf.keras.Input(shape=[], dtype=tf.int32,
+        name='spec_lengths')
+    label_lengths = tf.keras.Input(shape=[], dtype=tf.int32,
+        name='label_lengths')
 
-        next_state = tf.unstack(state)
-        next_state[1] = next_state[1][:, :(self.d_model // 2)]
+    stateful_rnn = training == False
 
-        for i in range(self.num_layers):
+    inp_enc = encoder(
+        specs_shape=specs_shape,
+        num_layers=hparams[HP_ENCODER_LAYERS],
+        d_model=hparams[HP_ENCODER_SIZE],
+        reduction_index=hparams[HP_TIME_REDUCT_INDEX],
+        reduction_factor=hparams[HP_TIME_REDUCT_FACTOR],
+        stateful=stateful_rnn)(mel_specs)
 
-            # outputs, next_state = tf.compat.v1.nn.static_rnn(self.rnn_cell,
-            #     outputs, initial_state=next_state)
-            outputs, state_h, state_c = self.rnn_layers[i](outputs, next_state)
-            outputs = self.layer_norm(outputs)
+    pred_net_size = hparams[HP_ENCODER_SIZE] // 2
 
-            next_state = [state_h, state_c]
-            
-            if i == self.reduction_index:
-                outputs = self.reduction_layer(outputs)
+    pred_outputs = prediction_network(
+        vocab_size=vocab_size,
+        embedding_size=hparams[HP_EMBEDDING_SIZE],
+        num_layers=hparams[HP_PRED_NET_LAYERS],
+        layer_size=pred_net_size)(pred_inp)
 
-        return outputs, next_state
+    joint_inp = (tf.expand_dims(inp_enc, 2)      # [B, T, V] => [B, T, 1, V]
+        + tf.expand_dims(pred_outputs, 1))       # [B, U, V] => [B, 1, U, V]
+    joint_outputs = tf.keras.layers.Dense(hparams[HP_JOINT_NET_SIZE])(joint_inp)
 
+    soft_outputs = tf.keras.layers.Dense(hparams[HP_SOFTMAX_SIZE], 
+        activation='softmax')(joint_outputs)
 
-class PredictionNetwork(tf.keras.Model):
+    outputs = tf.keras.layers.Dense(vocab_size)(soft_outputs)
 
-    def __init__(self, 
-                 vocab_size,
-                 embedding_size,
-                 num_layers,
-                 layer_size):
+    loss_fn = get_loss_fn(spec_lengths, label_lengths)
 
-        super(PredictionNetwork, self).__init__()
-
-        self.vocab_size = vocab_size
-        self.embedding_size = embedding_size
-        self.num_layers = num_layers
-        self.layer_size = layer_size
-
-        self.embed = tf.keras.layers.Embedding(self.vocab_size, self.embedding_size)
-        self.rnn_layers = [tf.keras.layers.LSTM(self.layer_size, return_sequences=True)
-                           for _ in range(self.num_layers)]
-        self.layer_norm = tf.keras.layers.LayerNormalization()
-
-    def call(self, inputs):
-
-        embedded = self.embed(inputs)
-        
-        outputs = embedded
-        for i in range(self.num_layers):
-            outputs = self.rnn_layers[i](outputs)
-            outputs = self.layer_norm(outputs)
-
-        return outputs
-
-
-class Transducer(tf.keras.Model):
-
-    def __init__(self,
-                 vocab, 
-                 embedding_size=64,
-                 encoder_layers=8,
-                 encoder_size=2048,
-                 encoder_tr_index=1,
-                 encoder_tr_factor=2,
-                 pred_net_layers=2,
-                 joint_net_size=640,
-                 softmax_size=4096):
-
-        super(Transducer, self).__init__()
-
-        self.vocab_size = len(vocab)
-        self.vocab = vocab
-        
-        self._vocab_t = tf.constant(vocab)
-        self._vocab_hash = tf.reduce_sum(tf.strings.unicode_decode(self._vocab_t, 'UTF-8'), axis=1)
-
-        self.embedding_size = embedding_size
-        self.encoder_layers = encoder_layers
-        self.encoder_size = encoder_size
-        self.encoder_tr_index = encoder_tr_index
-        self.encoder_tr_factor = encoder_tr_factor
-        self.pred_net_layers = pred_net_layers
-        self.pred_net_size = encoder_size // 2
-        self.joint_net_size = joint_net_size
-        self.softmax_size = softmax_size
-
-        self._checkpoint_step = 0
-
-        self.encoder = Encoder(num_layers=self.encoder_layers,
-                               d_model=self.encoder_size,
-                               reduction_index=self.encoder_tr_index,
-                               reduction_factor=self.encoder_tr_factor)
-
-        self.prediction_network = PredictionNetwork(vocab_size=self.vocab_size,
-                                                    embedding_size=self.embedding_size,
-                                                    num_layers=self.pred_net_layers,
-                                                    layer_size=self.pred_net_size)
-        
-        self._joint_net = tf.keras.layers.Dense(self.joint_net_size)
-        self._softmax = tf.keras.layers.Dense(self.softmax_size, activation='softmax')
-        self._proj = tf.keras.layers.Dense(self.vocab_size)
-
-    @classmethod
-    def load_json(cls, filepath):
-
-        with open(filepath, 'r') as f:
-            json_dict = json.loads(f.read())
-
-        json_dict['vocab'] = load_vocab(os.path.join(os.path.dirname(filepath), json_dict['vocab']))
-
-        return cls(**json_dict)
-
-    def call(self, inputs, training=True):
-
-        encoder_inp, pred_inp, encoder_state = inputs
-
-        inputs_enc, new_enc_state = self.encoder(encoder_inp, encoder_state, 
-            training=training)
-
-        pred_outputs = self.prediction_network(pred_inp)
-
-        joint_inp = (tf.expand_dims(inputs_enc, 2)      # [B, T, V] => [B, T, 1, V]
-            + tf.expand_dims(pred_outputs, 1))    # [B, U, V] => [B, 1, U, V]
-
-        joint_out = self._joint_net(joint_inp)
-        
-        soft_out = self._softmax(joint_out)
-        outputs = self._proj(soft_out)
-
-        return outputs, new_enc_state
-
-    @tf.function
-    def predict(self, audio, sr, pred_inp, enc_state):
-
-        # NOTE: Can only run predict of first input
-
-        _audio = audio[0]
-        _sr = sr[0]
-        _enc_state = enc_state[0]
-
-        pred_inp_c = tf.strings.bytes_split(pred_inp).flat_values
-        pred_inp_uni = tf.strings.unicode_decode(pred_inp_c, 'UTF-8').flat_values
-        pred_inp_r = tf.expand_dims(pred_inp_uni, axis=-1)
-
-        pred_inp_enc = tf.concat([[0],
-                                 tf.where(tf.equal(pred_inp_r, self._vocab_hash))[:, -1]],
-            axis=0)
-        pred_inp_enc = tf.expand_dims(pred_inp_enc, axis=0)
-
-        specs = tf_mel_spectrograms(_audio, _sr)
-        expanded_specs = tf.expand_dims(specs, axis=0)
-
-        expanded_specs.set_shape([1, None, 80])
-
-        predictions, new_enc_state = self.call([expanded_specs, pred_inp_enc, _enc_state], 
-            training=False)
-        predictions = predictions[:, -1, -1, :]
-        predictions = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
-
-        pred_hash = [tf.expand_dims(self._vocab_hash[predictions[0]], axis=0)]
-        pred_char = tf.strings.unicode_encode(pred_hash, 'UTF-8')
-
-        return pred_char, new_enc_state[0], new_enc_state[1]
-
-    def initial_state(self, batch_size):
-
-        encoder_state = [tf.zeros((batch_size, self.encoder_size)),
-                         tf.zeros((batch_size, self.encoder_size))]
-
-        return encoder_state
-
-    def to_json(self):
-
-        return json.dumps({
-            'vocab': './vocab',
-            'embedding_size': self.embedding_size,
-            'encoder_layers': self.encoder_layers,
-            'encoder_size': self.encoder_size,
-            'encoder_tr_index': self.encoder_tr_index,
-            'encoder_tr_factor': self.encoder_tr_factor,
-            'pred_net_layers': self.pred_net_layers,
-            'joint_net_size': self.joint_net_size,
-            'softmax_size': self.softmax_size
-        })
-
-    def save_config(self, filepath):
-
-        with open(filepath, 'w') as model_config:
-            model_config.write(self.to_json())
+    return tf.keras.Model(inputs=[mel_specs, pred_inp, spec_lengths, label_lengths],
+        outputs=[outputs]), loss_fn

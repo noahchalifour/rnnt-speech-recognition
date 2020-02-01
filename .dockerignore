@@ -1,5 +1,6 @@
 /venv
-# /model
+/model
 /logs
 /.vscode
 __pycache__
+/data

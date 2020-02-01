@@ -18,4 +18,4 @@ RUN chmod +x ./scripts/*
 
 RUN ./scripts/build_rnnt.sh
 
-CMD [ "./scripts/run_docker.sh" ]
+CMD [ "./scripts/docker_common_voice.sh" ]
