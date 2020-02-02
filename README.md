@@ -51,8 +51,8 @@ You can also train your model in a docker container based on the Tensorflow dock
 
 ```
 docker run -d --name rnnt-speech-recognition \
-    -v <path to local data>:./data \
-    -v <path to save model locally>:./model \
+    -v <path to local data>:/rnnt-speech-recognition/data \
+    -v <path to save model locally>:/rnnt-speech-recognition/model \
     -e MODE=train \
     -e DATA_DIR=./data \
     -e MODEL_DIR=./model \
