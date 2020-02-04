@@ -1,6 +1,8 @@
 from argparse import ArgumentParser
 from tqdm import tqdm
 from pydub import AudioSegment
+import functools
+import multiprocessing
 import os
 
 
@@ -34,20 +36,64 @@ def remove_missing(data_dir, fname):
     os.rename(new_filepath, old_filepath)
 
 
+def mp3_converter_job(mp3_filenames, counter):
+
+    for filename in mp3_filenames:
+
+        if filename[-4:] == '.mp3':
+            mp3_to_wav(filename)
+
+        # with counter.get_lock():
+        counter.value += 1
+
+
+def show_progress_bar(val, total):
+
+    prog = tqdm(total=total)
+    while True:
+        prog.n = val.value
+        prog.update(0)
+        if val.value >= total:
+            break
+
+
 def main(args):
 
     print('Converting all Common Voice MP3s to WAV...')
 
+    convert_manager = multiprocessing.Manager()
+    convert_counter = convert_manager.Value('i', 0,
+        lock=convert_manager.Lock())
+
     clips_dir = os.path.join(args.data_dir, 'clips')
+
     all_clips = os.listdir(clips_dir)
+    all_clips = [os.path.join(clips_dir, clip) for clip in all_clips]
 
-    for clip in tqdm(all_clips):
+    num_total = len(all_clips)
 
-        if clip[-4:] != '.mp3':
-            continue
+    num_cpus = multiprocessing.cpu_count()
+    pool = multiprocessing.Pool(num_cpus)
 
-        clip_fp = os.path.join(clips_dir, clip)
-        mp3_to_wav(clip_fp)
+    job_size = num_total // num_cpus
+
+    jobs = []
+    for _ in range(num_cpus - 1):
+        jobs.append(all_clips[:job_size])
+        all_clips[job_size:]
+
+    jobs.append(all_clips)
+    all_clips = []
+
+    mp3_partial = functools.partial(mp3_converter_job, counter=convert_counter)
+
+    progress = multiprocessing.Process(target=show_progress_bar, args=(convert_counter, num_total))
+    progress.start()
+
+    pool.map_async(mp3_partial, jobs)
+
+    pool.close()
+    pool.join()
 
     print('Removing missing files...')
 
