@@ -5,7 +5,7 @@ import os
 import tensorflow as tf
 
 from utils.data import common_voice
-from utils import preprocessing, vocabulary
+from utils import preprocessing, vocabulary, metrics
 from model import build_keras_model
 from hparams import *
 
@@ -100,7 +100,8 @@ def train():
     model, loss_fn = build_keras_model(vocab_size, hparams)
     optimizer = tf.keras.optimizers.Adam(hparams[HP_LEARNING_RATE])
 
-    model.compile(loss=loss_fn, optimizer=optimizer, 
+    model.compile(loss=loss_fn, optimizer=optimizer,
+        metrics=[metrics.cer], 
         experimental_run_tf_function=False)
 
     os.makedirs(FLAGS.model_dir, exist_ok=True)

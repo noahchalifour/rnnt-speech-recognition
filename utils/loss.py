@@ -12,6 +12,7 @@ except ImportError:
 def get_loss_fn(spec_lengths, label_lengths):
 
     def _fallback_loss(y_true, y_pred):
+        logging.info('RNN-T loss function not found.')
         return y_pred
 
     if not _has_loss_func:
