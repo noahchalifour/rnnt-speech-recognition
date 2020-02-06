@@ -51,9 +51,11 @@ def show_progress_bar(val, total):
 
     prog = tqdm(total=total)
     while True:
-        if not val.value:
+        if val.value is None:
             continue
         prog.n = val.value
+        if prog.n is None:
+            continue
         prog.update(0)
         if val.value >= total:
             break
