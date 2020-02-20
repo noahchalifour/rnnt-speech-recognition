@@ -61,11 +61,12 @@ docker run -d --name rnnt-speech-recognition \
     noahchalifour/rnnt-speech-recognition
 ```
 
-To run the model using a GPU you must run the following command with the added `--cap-add SYS_ADMIN`:
+To run the model using a GPU you must run the following command with the added `--cap-add SYS_ADMIN`, and `--gpus <gpus>`:
 
 ```
 docker run -d --name rnnt-speech-recognition \
     --cap-add SYS_ADMIN \
+    --gpus <gpus> \
     -v <path to local data>:/rnnt-speech-recognition/data \
     -v <path to save model locally>:/rnnt-speech-recognition/model \
     -e MODE=train \
