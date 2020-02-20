@@ -2,10 +2,12 @@ from absl import flags, logging, app
 from tensorboard.plugins.hparams import api as hp
 import json
 import os
+import re
 import tensorflow as tf
 
 from utils.data import common_voice
-from utils import preprocessing, vocabulary, metrics
+from utils import preprocessing, vocabulary
+from utils import model as model_utils
 from model import build_keras_model
 from hparams import *
 
@@ -97,16 +99,29 @@ def train():
     train_dataset, train_steps = dataset_fn('train')
     dev_dataset, dev_steps = dataset_fn('dev')
 
-    model, loss_fn = build_keras_model(vocab_size, hparams)
-    optimizer = tf.keras.optimizers.Adam(hparams[HP_LEARNING_RATE])
+    _hparams = {k.name: v for k, v in hparams.items()}
+
+    if os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
+
+        _hparams = model_utils.load_hparams(FLAGS.model_dir)
+
+        model, loss_fn = model_utils.load_model(FLAGS.model_dir,
+            vocab_size=vocab_size, hparams=_hparams)
+
+    else:
+
+        model, loss_fn = build_keras_model(vocab_size, _hparams)
+    
+    optimizer = tf.keras.optimizers.Adam(_hparams[HP_LEARNING_RATE.name])
 
     model.compile(loss=loss_fn, optimizer=optimizer,
-        metrics=[metrics.cer], 
         experimental_run_tf_function=False)
 
     os.makedirs(FLAGS.model_dir, exist_ok=True)
     checkpoint_fp = os.path.join(FLAGS.model_dir,
         'model.{epoch:03d}-{val_loss:.4f}.hdf5')
+
+    model_utils.save_hparams(_hparams, FLAGS.model_dir)
 
     model.fit(train_dataset,
         epochs=FLAGS.n_epochs,
@@ -115,7 +130,8 @@ def train():
         validation_steps=dev_steps,
         callbacks=[
             tf.keras.callbacks.TensorBoard(FLAGS.tb_log_dir),
-            tf.keras.callbacks.ModelCheckpoint(checkpoint_fp)
+            tf.keras.callbacks.ModelCheckpoint(checkpoint_fp,
+                save_weights_only=True)
         ])
 
 
