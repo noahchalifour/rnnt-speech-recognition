@@ -62,7 +62,7 @@ def train():
 
     hparams = {
 
-        HP_TOKEN_TYPE: HP_TOKEN_TYPE.domain.values[1],
+        HP_TOKEN_TYPE: HP_TOKEN_TYPE.domain.values[0],
         HP_VOCAB_SIZE: HP_VOCAB_SIZE.domain.values[0],
 
         # Preprocessing
