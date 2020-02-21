@@ -33,3 +33,14 @@ def load_dataset(base_path, name):
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     return dataset, dataset_size
+
+
+def texts_generator(base_path):
+
+    split_names = ['dev', 'train', 'test']
+
+    for split_name in split_names:
+        with open(os.path.join(base_path, '{}.tsv'.format(split_name)), 'r') as f:
+            for line in f:
+                transcription = line.split('\t')[2]
+                yield transcription

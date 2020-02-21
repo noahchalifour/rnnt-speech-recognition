@@ -6,7 +6,7 @@ import re
 import tensorflow as tf
 
 from utils.data import common_voice
-from utils import preprocessing, vocabulary
+from utils import preprocessing, vocabulary, encoding
 from utils import model as model_utils
 from model import build_keras_model
 from hparams import *
@@ -38,7 +38,7 @@ flags.DEFINE_integer(
 
 
 def get_dataset_fn(base_path, 
-                   vocab_table, 
+                   encoder_fn, 
                    batch_size, 
                    hparams):
 
@@ -47,7 +47,7 @@ def get_dataset_fn(base_path,
         dataset, dataset_size = common_voice.load_dataset(base_path, name)
 
         dataset = preprocessing.preprocess_dataset(dataset, 
-            vocab_table=vocab_table,
+            encoder_fn=encoder_fn,
             batch_size=batch_size,
             hparams=hparams)
 
@@ -61,6 +61,9 @@ def get_dataset_fn(base_path,
 def train():
 
     hparams = {
+
+        HP_TOKEN_TYPE: HP_TOKEN_TYPE.domain.values[1],
+        HP_VOCAB_SIZE: HP_VOCAB_SIZE.domain.values[0],
 
         # Preprocessing
         HP_MEL_BINS: HP_MEL_BINS.domain.values[0],
@@ -83,34 +86,37 @@ def train():
 
     }
 
-    vocab = vocabulary.init_vocab()
-    vocab_table = preprocessing.build_lookup_table(vocab, 
-        default_value=0)
-
-    vocab_size = len(vocab)
-
-    logging.info('Vocabulary size: {}'.format(vocab_size))
-
-    dataset_fn = get_dataset_fn(FLAGS.data_dir, 
-        vocab_table=vocab_table,
-        batch_size=FLAGS.batch_size,
-        hparams=hparams)
-
-    train_dataset, train_steps = dataset_fn('train')
-    dev_dataset, dev_steps = dataset_fn('dev')
-
-    _hparams = {k.name: v for k, v in hparams.items()}
-
     if os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
 
         _hparams = model_utils.load_hparams(FLAGS.model_dir)
+
+        encoder_fn, vocab_size = encoding.load_encoder(FLAGS.model_dir, 
+            hparams=_hparams)
 
         model, loss_fn = model_utils.load_model(FLAGS.model_dir,
             vocab_size=vocab_size, hparams=_hparams)
 
     else:
 
+        _hparams = {k.name: v for k, v in hparams.items()}
+
+        texts_gen = common_voice.texts_generator(FLAGS.data_dir)
+
+        encoder_fn, vocab_size = encoding.build_encoder(texts_gen,
+            model_dir=FLAGS.model_dir, hparams=_hparams)
+
         model, loss_fn = build_keras_model(vocab_size, _hparams)
+
+    logging.info('Using {} encoder with vocab size: {}'.format(
+        _hparams[HP_TOKEN_TYPE.name], vocab_size))
+
+    dataset_fn = get_dataset_fn(FLAGS.data_dir, 
+        encoder_fn=encoder_fn,
+        batch_size=FLAGS.batch_size,
+        hparams=hparams)
+
+    train_dataset, train_steps = dataset_fn('train')
+    dev_dataset, dev_steps = dataset_fn('dev')
     
     optimizer = tf.keras.optimizers.Adam(_hparams[HP_LEARNING_RATE.name])
 

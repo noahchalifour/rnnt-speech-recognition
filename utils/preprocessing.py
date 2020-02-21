@@ -10,18 +10,6 @@ def tf_load_audio(path):
     return tf.audio.decode_wav(audio_raw)
 
 
-def build_lookup_table(keys, values=None, default_value=-1):
-
-    if values is None:
-        values = tf.range(len(keys))
-
-    kv_init = tf.lookup.KeyValueTensorInitializer(
-        keys=keys, values=values)
-
-    return tf.lookup.StaticHashTable(kv_init,
-        default_value=default_value)
-
-
 def normalize_text(text):
 
     return text.lower()
@@ -67,7 +55,7 @@ def compute_mel_spectrograms(audio_arr,
 
 
 def preprocess_dataset(dataset, 
-                       vocab_table, 
+                       encoder_fn, 
                        batch_size, 
                        hparams):
 
@@ -80,7 +68,7 @@ def preprocess_dataset(dataset,
             frame_step=hparams[HP_FRAME_STEP],
             hertz_low=hparams[HP_HERTZ_LOW],
             hertz_high=hparams[HP_HERTZ_HIGH]),
-        encode_text(trans, vocab_table),
+        encoder_fn(trans),
     ), num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     _dataset = _dataset.map(lambda audio, labels: ({
@@ -98,12 +86,6 @@ def preprocess_dataset(dataset,
             'spec_lengths': [],
             'label_lengths': []
         }, [-1]))
-
-    enc_state = tf.zeros((2, batch_size, hparams[HP_ENCODER_SIZE]))
-    _dataset = _dataset.map(lambda inp, out: ({
-        **inp,
-        'enc_state': enc_state
-    }, out))
 
     _dataset = _dataset.prefetch(
         tf.data.experimental.AUTOTUNE)

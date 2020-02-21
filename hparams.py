@@ -1,5 +1,8 @@
 from tensorboard.plugins.hparams import api as hp
 
+HP_TOKEN_TYPE = hp.HParam('token_type', hp.Discrete(['word-piece', 'character']))
+HP_VOCAB_SIZE = hp.HParam('vocab_size', hp.Discrete([2**15]))
+
 # Preprocessing Hparams
 HP_MEL_BINS = hp.HParam('mel_bins', hp.Discrete([80]))
 HP_FRAME_LENGTH = hp.HParam('frame_length', hp.Discrete([0.025]))
