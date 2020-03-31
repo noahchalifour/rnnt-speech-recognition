@@ -86,3 +86,7 @@ docker run -d --name rnnt-speech-recognition \
     -e OUTPUT_DIR=./model \
     noahchalifour/rnnt-speech-recognition
 ``` -->
+
+## Pretrained Model
+
+Due to financial restrictions, I don't have the money to train a high quality model. If anybody is willing to train a model, you can send it to me and I will put it up here and give you credit. (chalifournoah@gmail.com)
