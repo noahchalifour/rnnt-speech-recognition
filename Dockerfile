@@ -14,4 +14,4 @@ ENV CUDA_HOME /usr/local/cuda
 RUN chmod +x ./scripts/*
 RUN ./scripts/build_rnnt.sh
 
-CMD [ "./scripts/docker_common_voice.sh" ]
+# CMD [ "./scripts/docker_common_voice.sh" ]

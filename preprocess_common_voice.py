@@ -1,100 +1,93 @@
-from argparse import ArgumentParser
-from pydub import AudioSegment
-import multiprocessing
+from absl import app, logging, flags
 import os
+import json
+import tensorflow as tf
+
+from utils import preprocessing, encoding
+from utils.data import common_voice
+from hparams import *
 
 
-def mp3_to_wav(filepath):
+FLAGS = flags.FLAGS
 
-    try:
-        audio_segment = AudioSegment.from_mp3(filepath)
-        audio_segment.export('{}.wav'.format(filepath[:-4]), format='wav')
-    except Exception:
-        pass
-
-    os.remove(filepath)
-
-
-def remove_missing(data_dir, fname):
-
-    clips_dir = os.path.join(data_dir, 'clips')
-
-    old_filepath = os.path.join(data_dir, '{}.tsv'.format(fname))
-    new_filepath = os.path.join(data_dir, '{}-tmp.tsv'.format(fname))
-
-    with open(old_filepath, 'r') as old_f:
-        with open(new_filepath, 'w') as new_f:
-            new_f.write(next(old_f))
-            for line in old_f:
-                audio_fn = line.split('\t')[1][:-4] + '.wav'
-                if os.path.exists(os.path.join(clips_dir, audio_fn)):
-                    new_f.write(line)
-
-    os.remove(old_filepath)
-    os.rename(new_filepath, old_filepath)
+flags.DEFINE_string(
+    'data_dir', None,
+    'Directory to read Common Voice data from.')
+flags.DEFINE_string(
+    'output_dir', './data',
+    'Directory to save preprocessed data.')
 
 
-def mp3_converter_job(mp3_filenames):
+def write_dataset(dataset, size, name):
 
-    for filename in mp3_filenames:
+    filepath_template = os.path.join(FLAGS.output_dir,
+        '{}.tfrecord')
 
-        if filename[-4:] != '.mp3':
-            continue
+    writer = tf.data.experimental.TFRecordWriter(
+        filepath_template.format(name))
+    writer.write(dataset)
 
-        print(filename)
-        mp3_to_wav(filename)
-
-
-def main(args):
-
-    print('Converting all Common Voice MP3s to WAV...')
-
-    clips_dir = os.path.join(args.data_dir, 'clips')
-
-    all_clips = os.listdir(clips_dir)
-    all_clips = [os.path.join(clips_dir, clip) for clip in all_clips]
-
-    num_total = len(all_clips)
-
-    num_cpus = multiprocessing.cpu_count()
-    pool = multiprocessing.Pool(num_cpus)
-
-    job_size = num_total // num_cpus
-
-    jobs = []
-    for _ in range(num_cpus - 1):
-        jobs.append(all_clips[:job_size])
-        all_clips[job_size:]
-
-    jobs.append(all_clips)
-    all_clips = []
-
-    pool.map_async(mp3_converter_job, jobs)
-
-    pool.close()
-    pool.join()
-
-    print('Removing missing files...')
-
-    tsv_files = ['dev', 'invalidated', 'other', 'test', 'train', 'validated']
-
-    for _file in tsv_files:
-        remove_missing(args.data_dir, _file)
-
-    print('Done.')
+    with open(os.path.join(FLAGS.output_dir, 
+        '{}-specs.json'.format(name)), 'w') as f:
+        json.dump({
+            'size': size
+        }, f)
 
 
-def parse_args():
+def main(_):
 
-    ap = ArgumentParser()
+    hparams = {
 
-    ap.add_argument('--data_dir', required=True, type=str,
-        help='Path to common voice data directory.')
-    
-    return ap.parse_args()
+        HP_TOKEN_TYPE: HP_TOKEN_TYPE.domain.values[1],
+        HP_VOCAB_SIZE: HP_VOCAB_SIZE.domain.values[0],
+
+        # Preprocessing
+        HP_MEL_BINS: HP_MEL_BINS.domain.values[0],
+        HP_FRAME_LENGTH: HP_FRAME_LENGTH.domain.values[0],
+        HP_FRAME_STEP: HP_FRAME_STEP.domain.values[0],
+        HP_HERTZ_LOW: HP_HERTZ_LOW.domain.values[0],
+        HP_HERTZ_HIGH: HP_HERTZ_HIGH.domain.values[0]
+
+    }
+
+    _hparams = {k.name: v for k, v in hparams.items()}
+
+    texts_gen = common_voice.texts_generator(FLAGS.data_dir)
+
+    encoder_fn, decoder_fn, vocab_size = encoding.build_encoder(texts_gen,
+        output_dir=FLAGS.output_dir, hparams=_hparams)
+    _hparams[HP_VOCAB_SIZE.name] = vocab_size
+
+    train_dataset, train_size = common_voice.load_dataset(
+        FLAGS.data_dir, 'train')
+    print('Train size:', train_size)
+    train_dataset = preprocessing.preprocess_dataset(
+        train_dataset,
+        encoder_fn=encoder_fn,
+        hparams=_hparams)
+    write_dataset(train_dataset, train_size, 'train')
+
+    dev_dataset, dev_size = common_voice.load_dataset(
+        FLAGS.data_dir, 'dev')
+    print('Dev size:', dev_size)
+    dev_dataset = preprocessing.preprocess_dataset(
+        dev_dataset,
+        encoder_fn=encoder_fn,
+        hparams=_hparams)
+    write_dataset(dev_dataset, dev_size, 'dev')
+
+    test_dataset, test_size = common_voice.load_dataset(
+        FLAGS.data_dir, 'test')
+    print('Test size:', test_size)
+    test_dataset = preprocessing.preprocess_dataset(
+        test_dataset,
+        encoder_fn=encoder_fn,
+        hparams=_hparams)
+    write_dataset(test_dataset, test_size, 'test')
 
 
 if __name__ == '__main__':
 
-    args = parse_args()
-    main(args)
+    flags.mark_flag_as_required('data_dir')
+
+    app.run(main)

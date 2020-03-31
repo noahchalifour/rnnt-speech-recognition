@@ -8,19 +8,9 @@ This speech recognition model is based off Google's [Streaming End-to-end Speech
 
 > **_NOTE:_** If you are not training using docker you must run the following commands + setup the loss function (instructions for this can be found in `warp-transducer/tensorflow_binding`)
 
-## Common Voice
+## Setup Your Environment
 
-### Preprocessing Data
-
-Before you can train a model on the Common Voice dataset, you must first run the `preprocess_common_voice.py` script. Do so by running the following command:
-
-```
-python preprocess_common_voice.py --data_dir <path to dataset>
-```
-
-### Training a model
-
-To setup your environment, run the following commands:
+To setup your environment, run the following command:
 
 ```
 git clone --recurse https://github.com/noahchalifour/rnnt-speech-recognition.git
@@ -29,9 +19,31 @@ pip install tensorflow==2.1.0 # or tensorflow-gpu==2.1.0 for GPU support
 pip install -r requirements.txt
 ```
 
-Once your environment is all set you are ready to start training your own models.
+## Common Voice
 
-#### Training on Host
+### Convert all MP3s to WAVs
+
+Before you can train a model on the Common Voice dataset, you must first convert all the audio mp3 filetypes to wavs. Do so by running the following command:
+
+> **_NOTE:_** Make sure you have `ffmpeg` installed on your computer, as it uses that to convert mp3 to wav
+
+```
+./scripts/common_voice_convert.sh <data_dir>
+```
+
+### Preprocessing dataset
+
+After converting all the mp3s to wavs you need to preprocess the dataset, you can do so by running the following command:
+
+```
+python preprocess_common_voice.py \
+    --data_dir <data_dir> \
+    --output_dir <preprocessed_dir>
+```
+
+### Training a model
+
+<!-- #### Training on Host -->
 
 To train a simple model, run the following command:
 
@@ -41,7 +53,7 @@ python run_common_voice.py \
     --data_dir <path to common voice directory>
 ```
 
-#### Training in Docker Container
+<!-- #### Training in Docker Container
 
 [View Image](https://hub.docker.com/r/noahchalifour/rnnt-speech-recognition)
 
@@ -57,7 +69,7 @@ docker run -d --name rnnt-speech-recognition \
     -v <path to save model locally>:/rnnt-speech-recognition/model \
     -e MODE=train \
     -e DATA_DIR=./data \
-    -e MODEL_DIR=./model \
+    -e OUTPUT_DIR=./model \
     noahchalifour/rnnt-speech-recognition
 ```
 
@@ -71,6 +83,6 @@ docker run -d --name rnnt-speech-recognition \
     -v <path to save model locally>:/rnnt-speech-recognition/model \
     -e MODE=train \
     -e DATA_DIR=./data \
-    -e MODEL_DIR=./model \
+    -e OUTPUT_DIR=./model \
     noahchalifour/rnnt-speech-recognition
-```
+``` -->

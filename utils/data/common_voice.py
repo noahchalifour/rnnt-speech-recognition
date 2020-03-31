@@ -37,7 +37,8 @@ def load_dataset(base_path, name):
 
 def texts_generator(base_path):
 
-    split_names = ['dev', 'train', 'test']
+    # split_names = ['dev', 'train', 'test']
+    split_names = ['train']
 
     for split_name in split_names:
         with open(os.path.join(base_path, '{}.tsv'.format(split_name)), 'r') as f:

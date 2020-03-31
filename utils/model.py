@@ -18,16 +18,3 @@ def save_hparams(hparams, model_dir):
         json.dump(hparams, f)
 
 
-def load_model(model_dir, vocab_size, hparams, training=True):
-
-    model, loss_fn = build_keras_model(vocab_size, hparams,
-        training=training)
-    
-    epochs_r = re.compile(r'model.\d+-')
-    newest_weights = max(filter(epochs_r.findall, os.listdir(model_dir)))
-
-    model.load_weights(os.path.join(model_dir, newest_weights))
-
-    logging.info('Restored weights from {}.'.format(newest_weights))
-
-    return model, loss_fn

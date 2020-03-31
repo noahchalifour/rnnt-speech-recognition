@@ -9,21 +9,28 @@ except ImportError:
     pass
 
 
-def get_loss_fn(spec_lengths, label_lengths):
+def get_loss_fn(reduction_factor):
 
-    def _fallback_loss(y_true, y_pred):
+    def _fallback_loss(y_true, 
+                       y_pred, 
+                       spec_lengths,
+                       label_lengths):
         logging.info('RNN-T loss function not found.')
         return y_pred
 
     if not _has_loss_func:
         return _fallback_loss
 
-    def _loss_fn(y_true, y_pred):
+    def _loss_fn(y_true, 
+                 y_pred,
+                 spec_lengths,
+                 label_lengths):
         y_true = tf.cast(y_true, dtype=tf.int32)
-        if len(tf.config.list_physical_devices('GPU')) == 0:
+        if not tf.test.is_built_with_cuda():
             y_pred = tf.nn.log_softmax(y_pred)
+        spec_lengths = spec_lengths // reduction_factor
         loss = rnnt_loss(y_pred, y_true,
-            spec_lengths, label_lengths)
+            spec_lengths, label_lengths - 1)
         return loss
 
     return _loss_fn

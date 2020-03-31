@@ -4,3 +4,7 @@
 /.vscode
 __pycache__
 /data
+
+build
+dist
+warprnnt_tensorflow.egg-info

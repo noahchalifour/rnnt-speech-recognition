@@ -108,3 +108,8 @@ venv.bak/
 /model
 /logs
 /data
+rsync_exclude.txt
+/scripts/train.sh
+/scripts/send_to_server.sh
+/data_p
+/model_tmp

@@ -1,3 +1,5 @@
+import glob
+import os
 import tensorflow as tf
 
 from hparams import *
@@ -54,42 +56,120 @@ def compute_mel_spectrograms(audio_arr,
     return tf.squeeze(mel_specs)
 
 
-def preprocess_dataset(dataset, 
+def downsample_spec(mel_spec, n=3):
+
+    chunk_size = tf.shape(mel_spec)[0] // n
+    spec_len = chunk_size * n
+    spec_trimmed = mel_spec[:spec_len]
+
+    spec_stack = tf.reshape(spec_trimmed, (chunk_size, n, -1))
+
+    return spec_stack[:, -1, :]
+
+
+def load_dataset(data_dir, name):
+
+    filenames = glob.glob(os.path.join(data_dir, 
+        '{}.tfrecord'.format(name)))
+
+    raw_dataset = tf.data.TFRecordDataset(filenames)
+
+    parsed_dataset = raw_dataset.map(parse_example,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    return parsed_dataset
+
+
+def parse_example(serialized_example):
+
+    parse_dict = {
+        'mel_specs': tf.io.FixedLenFeature([], tf.string),
+        'pred_inp': tf.io.FixedLenFeature([], tf.string),
+        'spec_lengths': tf.io.FixedLenFeature([], tf.string),
+        'label_lengths': tf.io.FixedLenFeature([], tf.string),
+        'labels': tf.io.FixedLenFeature([], tf.string),
+    }
+
+    example = tf.io.parse_single_example(serialized_example, parse_dict)
+
+    mel_specs = tf.io.parse_tensor(example['mel_specs'], out_type=tf.float32)
+    pred_inp = tf.io.parse_tensor(example['pred_inp'], out_type=tf.int32)
+    spec_lengths = tf.io.parse_tensor(example['spec_lengths'], out_type=tf.int32)
+    label_lengths = tf.io.parse_tensor(example['label_lengths'], out_type=tf.int32)
+
+    labels = tf.io.parse_tensor(example['labels'], out_type=tf.int32)
+
+    return (mel_specs, pred_inp, spec_lengths, label_lengths, labels)
+
+
+def serialize_example(mel_specs,
+                      pred_inp,
+                      spec_lengths,
+                      label_lengths,
+                      labels):
+
+    def _bytes_feature(value):
+        """Returns a bytes_list from a string / byte."""
+        if isinstance(value, type(tf.constant(0))): # if value ist tensor
+            value = value.numpy() # get value of tensor
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+    mel_specs_s = tf.io.serialize_tensor(mel_specs)
+    pred_inp_s = tf.io.serialize_tensor(pred_inp)
+    spec_lengths_s = tf.io.serialize_tensor(spec_lengths)
+    label_lengths_s = tf.io.serialize_tensor(label_lengths)
+
+    labels_s = tf.io.serialize_tensor(labels)
+
+    feature = {
+        'mel_specs': _bytes_feature(mel_specs_s),
+        'pred_inp': _bytes_feature(pred_inp_s),
+        'spec_lengths': _bytes_feature(spec_lengths_s),
+        'label_lengths': _bytes_feature(label_lengths_s),
+        'labels': _bytes_feature(labels_s)
+    }
+
+    example = tf.train.Example(features=tf.train.Features(feature=feature))
+
+    return example.SerializeToString()
+
+def tf_serialize_example(mel_specs,
+                         pred_inp,
+                         spec_lengths,
+                         label_lengths, 
+                         labels):
+
+    tf_string = tf.py_function(
+        serialize_example,
+        (mel_specs, pred_inp, spec_lengths, label_lengths, labels),
+        tf.string)
+
+    return tf.reshape(tf_string, ())
+
+
+def preprocess_dataset(dataset,
                        encoder_fn, 
-                       batch_size, 
                        hparams):
 
-    _dataset = dataset.shuffle(5000)
-
-    _dataset = _dataset.map(lambda audio, sr, trans: (
+    _dataset = dataset.map(lambda audio, sr, trans: (
         compute_mel_spectrograms(audio, sr,
-            n_mel_bins=hparams[HP_MEL_BINS],
-            frame_length=hparams[HP_FRAME_LENGTH],
-            frame_step=hparams[HP_FRAME_STEP],
-            hertz_low=hparams[HP_HERTZ_LOW],
-            hertz_high=hparams[HP_HERTZ_HIGH]),
+            n_mel_bins=hparams[HP_MEL_BINS.name],
+            frame_length=hparams[HP_FRAME_LENGTH.name],
+            frame_step=hparams[HP_FRAME_STEP.name],
+            hertz_low=hparams[HP_HERTZ_LOW.name],
+            hertz_high=hparams[HP_HERTZ_HIGH.name]),
         encoder_fn(trans),
     ), num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    _dataset = _dataset.map(lambda audio, labels: ({
-            'mel_specs': audio,
-            'pred_inp': labels[:-1],
-            'spec_lengths': tf.shape(audio)[0] - 1,
-            'label_lengths': tf.shape(labels)[0] - 2,
-        }, labels[1:]),
-        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    _dataset = _dataset.map(lambda mel_spec, labels: (
+        downsample_spec(mel_spec), labels
+    ), num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    _dataset = _dataset.padded_batch(
-        batch_size, padded_shapes=({
-            'mel_specs': [-1, -1], 
-            'pred_inp': [-1],
-            'spec_lengths': [],
-            'label_lengths': []
-        }, [-1]))
+    _dataset = _dataset.map(lambda mel_spec, labels: (
+            mel_spec, labels, tf.shape(mel_spec)[0], tf.shape(labels)[0],
+            labels[1:]
+    ), num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    _dataset = _dataset.prefetch(
-        tf.data.experimental.AUTOTUNE)
-
-    _dataset = _dataset.repeat()
+    _dataset = _dataset.map(tf_serialize_example)
 
     return _dataset
