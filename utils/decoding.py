@@ -1,12 +1,26 @@
 import tensorflow as tf
 
 
+def joint(model, f, g):
+
+    dense_1 = model.layers[-2]
+    dense_2 = model.layers[-1]
+
+    joint_inp = tf.concat([f, g[:, -1, :]], 
+        axis=-1)
+    
+    outputs = dense_1(joint_inp)
+    outputs = dense_2(outputs)
+    
+    return outputs
+
+
 def greedy_decode_fn(model, start_token=0):
 
     # NOTE: Only the first input is decoded
 
-    encoder = model.layers[1]
-    decoder = model.layers[-1]
+    encoder = model.layers[2]
+    prediction_network = model.layers[3]
 
     def greedy_decode(inputs, max_length=None):
 
@@ -24,7 +38,7 @@ def greedy_decode_fn(model, start_token=0):
 
         def time_step_body(i, outputs, max_reached):
 
-            inp_enc = tf.expand_dims(encoded[:, i, :], axis=1)
+            inp_enc = encoded[:, i, :]
 
             _outputs_0 = outputs
             _max_reached_0 = max_reached
@@ -35,10 +49,9 @@ def greedy_decode_fn(model, start_token=0):
 
             def dec_step_body(_outputs, _max_reached, dec_end):
 
-                preds = decoder([inp_enc, _outputs],
+                pred_out = prediction_network(_outputs,
                     training=False)
-                # print(preds)
-                preds = preds[0, -1, 0, :]
+                preds = joint(model, inp_enc, pred_out)[0]
                 preds = tf.nn.log_softmax(preds)
 
                 predicted_id = tf.cast(

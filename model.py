@@ -107,65 +107,6 @@ def prediction_network(vocab_size,
         name='prediction_network')
 
 
-def joint_network(input_shape,
-                  size,
-                  initializer=None):
-
-    inputs = tf.keras.Input(shape=input_shape, dtype=tf.float32)
-
-    outputs = tf.keras.layers.Dense(size,
-        kernel_initializer=initializer)(inputs)
-
-    return tf.keras.Model(inputs=[inputs], outputs=[outputs],
-        name='joint_network')
-
-
-def decoder(vocab_size,
-            embedding_size,
-            num_layers,
-            layer_size,
-            proj_size,
-            joint_size,
-            stateful=False,
-            initializer=None,
-            dtype=tf.float32):
-
-    inp_enc = tf.keras.Input(shape=[None, None], 
-        dtype=tf.float32, name='inp_enc')
-    pred_inp = tf.keras.Input(shape=[None], 
-        dtype=tf.int32, name='pred_inp')
-
-    pred_outputs = prediction_network(
-        vocab_size=vocab_size,
-        embedding_size=embedding_size,
-        num_layers=num_layers,
-        layer_size=layer_size,
-        proj_size=proj_size,
-        stateful=stateful,
-        initializer=initializer,
-        dtype=dtype)(pred_inp)    
-
-    inp_enc_exp = tf.keras.layers.Reshape(
-        (-1, 1, proj_size))(inp_enc)        # [B, T, V] => [B, T, 1, V]
-    pred_outputs_exp = tf.keras.layers.Reshape(
-        (1, -1, proj_size))(pred_outputs)   # [B, U, V] => [B, 1, U, V]
-
-    joint_inp = inp_enc_exp + pred_outputs_exp
-
-    joint_net_input_shape = [None, None, proj_size]
-
-    joint_outputs = joint_network(
-        input_shape=joint_net_input_shape,
-        size=joint_size,
-        initializer=initializer)(joint_inp)
-
-    outputs = tf.keras.layers.Dense(vocab_size,
-        kernel_initializer=initializer)(joint_outputs)
-
-    return tf.keras.Model(inputs=[inp_enc, pred_inp], outputs=[outputs],
-        name='decoder')
-
-
 def build_keras_model(hparams,
                       stateful=False,
                       initializer=None,
@@ -193,16 +134,36 @@ def build_keras_model(hparams,
         initializer=initializer,
         dtype=dtype)(mel_specs)
 
-    outputs = decoder(
+    pred_outputs = prediction_network(
         vocab_size=hparams[HP_VOCAB_SIZE.name],
         embedding_size=hparams[HP_EMBEDDING_SIZE.name],
         num_layers=hparams[HP_PRED_NET_LAYERS.name],
         layer_size=hparams[HP_PRED_NET_SIZE.name],
         proj_size=hparams[HP_PROJECTION_SIZE.name],
-        joint_size=hparams[HP_JOINT_NET_SIZE.name],
         stateful=stateful,
         initializer=initializer,
-        dtype=dtype)([inp_enc, pred_inp])
+        dtype=dtype)(pred_inp)
+
+    inp_enc_exp = tf.expand_dims(inp_enc, axis=2)               # [B, T, V] => [B, T, 1, V]
+    pred_outputs_exp = tf.expand_dims(pred_outputs, axis=1)     # [B, U, V] => [B, 1, U, V]
+
+    # inp_enc_exp = tf.keras.layers.Reshape(
+    #     (-1, 1, hparams[HP_PROJECTION_SIZE.name]))(inp_enc)        
+    # pred_outputs_exp = tf.keras.layers.Reshape(
+    #     (1, -1, hparams[HP_PROJECTION_SIZE.name]))(pred_outputs)   
+
+    inp_enc_b = tf.tile(inp_enc_exp, tf.stack([1, 1, tf.shape(pred_outputs)[1], 1], 
+        name='stack_inp_enc'))
+    pred_out_b = tf.tile(pred_outputs_exp, tf.stack([1, tf.shape(inp_enc)[1], 1, 1], 
+        name='stack_pred_out'))
+
+    joint_inp = tf.keras.layers.concatenate([inp_enc_b, pred_out_b])
+
+    joint_outputs = tf.keras.layers.Dense(hparams[HP_JOINT_NET_SIZE.name],
+        kernel_initializer=initializer, activation='tanh')(joint_inp)
+
+    outputs = tf.keras.layers.Dense(hparams[HP_VOCAB_SIZE.name],
+        kernel_initializer=initializer)(joint_outputs)
 
     return tf.keras.Model(inputs=[mel_specs, pred_inp],
         outputs=[outputs], name='transducer')

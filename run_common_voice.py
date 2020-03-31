@@ -130,7 +130,8 @@ def run_training(model,
                  eval_dataset=None,
                  train_metrics=[],
                  eval_metrics=[],
-                 fp16_run=False):
+                 fp16_run=False,
+                 gpus=[]):
 
     @tf.function(experimental_relax_shapes=True)
     def train_step(dist_inputs):
@@ -151,7 +152,7 @@ def run_training(model,
             if train_metrics is not None:
                 metric_results = run_metrics(mel_specs, labels,
                     metrics=train_metrics)
-                metric_results = {name: result * (1. / max(len(FLAGS.gpus), 1)) for name, result in metric_results.items()}
+                metric_results = {name: result * (1. / max(len(gpus), 1)) for name, result in metric_results.items()}
 
             gradients = tape.gradient(loss, model.trainable_variables)
             if fp16_run:
@@ -198,7 +199,8 @@ def run_training(model,
                             eval_dataset=eval_dataset,
                             batch_size=batch_size,
                             strategy=strategy,
-                            metrics=eval_metrics)
+                            metrics=eval_metrics,
+                            gpus=gpus)
 
                         validation_log_str = 'VALIDATION RESULTS: Time: {:.4f}, Loss: {:.4f}'.format(
                             time.time() - eval_start_time, eval_loss)
@@ -260,7 +262,8 @@ def run_evaluate(model,
                  batch_size,
                  strategy,
                  metrics=[],
-                 fp16_run=False):
+                 fp16_run=False,
+                 gpus=[]):
 
     @tf.function(experimental_relax_shapes=True)
     def eval_step(dist_inputs):
@@ -282,7 +285,7 @@ def run_evaluate(model,
             if metrics is not None:
                 metric_results = run_metrics(mel_specs, labels,
                     metrics=metrics)
-                metric_results = {name: result * (1. / max(len(FLAGS.gpus), 1)) for name, result in metric_results.items()}
+                metric_results = {name: result * (1. / max(len(gpus), 1)) for name, result in metric_results.items()}
 
             return loss, metric_results
 
@@ -446,15 +449,11 @@ def main(_):
         optimizer = mixed_precision.LossScaleOptimizer(optimizer, 
             loss_scale='dynamic')
 
-    encoder = model.layers[1]
-    decoder = model.layers[3]
-
-    prediction_network = decoder.layers[2]
-    joint_network = decoder.layers[-2]
+    encoder = model.layers[2]
+    prediction_network = model.layers[3]
 
     encoder.summary()
     prediction_network.summary()
-    joint_network.summary()
 
     model.summary()
 
@@ -494,7 +493,8 @@ def main(_):
                 steps_per_checkpoint=FLAGS.steps_per_checkpoint,
                 eval_dataset=dev_dataset,
                 train_metrics=[],
-                eval_metrics=[accuracy_fn, cer_fn, wer_fn])
+                eval_metrics=[accuracy_fn, cer_fn, wer_fn],
+                gpus=gpus)
 
         elif FLAGS.mode == 'eval' or FLAGS.mode == 'test':
 
@@ -516,7 +516,8 @@ def main(_):
                 eval_dataset=dataset,
                 batch_size=FLAGS.batch_size,
                 strategy=strategy,
-                metrics=[accuracy_fn, cer_fn, wer_fn])
+                metrics=[accuracy_fn, cer_fn, wer_fn],
+                gpus=gpus)
 
             validation_log_str = 'VALIDATION RESULTS: Time: {:.4f}, Loss: {:.4f}'.format(
                 time.time() - eval_start_time, eval_loss)
