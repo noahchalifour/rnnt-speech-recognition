@@ -21,6 +21,8 @@ pip install -r requirements.txt
 
 ## Common Voice
 
+You can find and download the Common Voice dataset [here](https://voice.mozilla.org/en/datasets)
+
 ### Convert all MP3s to WAVs
 
 Before you can train a model on the Common Voice dataset, you must first convert all the audio mp3 filetypes to wavs. Do so by running the following command:
