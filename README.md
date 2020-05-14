@@ -30,7 +30,7 @@ Before you can train a model on the Common Voice dataset, you must first convert
 > **_NOTE:_** Make sure you have `ffmpeg` installed on your computer, as it uses that to convert mp3 to wav
 
 ```
-./scripts/common_voice_convert.sh <data_dir>
+./scripts/common_voice_convert.sh <data_dir> <# of threads>
 python scripts/remove_missing_samples.py \
     --data_dir <data_dir> \
     --replace_old
