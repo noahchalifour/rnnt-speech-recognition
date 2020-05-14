@@ -23,16 +23,13 @@ def load_dataset(base_path, name):
 
     filepath = os.path.join(base_path, '{}.tsv'.format(name))
 
-    with open(filepath, 'r') as f:
-        dataset_size = sum(1 for _ in f) - 1
-
     dataset = tf.data.TextLineDataset([filepath])
 
     dataset = dataset.skip(1)
     dataset = dataset.map(lambda line: tf_parse_line(line, base_path),
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    return dataset, dataset_size
+    return dataset
 
 
 def texts_generator(base_path):

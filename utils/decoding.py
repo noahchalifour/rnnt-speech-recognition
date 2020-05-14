@@ -1,27 +1,37 @@
 import tensorflow as tf
 
+from hparams import *
+
 
 def joint(model, f, g):
 
     dense_1 = model.layers[-2]
     dense_2 = model.layers[-1]
 
-    joint_inp = tf.concat([f, g[:, -1, :]], 
-        axis=-1)
-    
+    joint_inp = (
+        tf.expand_dims(f, axis=2) +                 # [B, T, V] => [B, T, 1, V]
+        tf.expand_dims(g[:, -1, :], axis=1))        # [B, U, V] => [B, 1, U, V]
+
     outputs = dense_1(joint_inp)
     outputs = dense_2(outputs)
-    
-    return outputs
+
+    return outputs[:, 0, 0, :]
 
 
-def greedy_decode_fn(model, start_token=0):
+def greedy_decode_fn(model, hparams):
 
     # NOTE: Only the first input is decoded
 
     encoder = model.layers[2]
     prediction_network = model.layers[3]
 
+    start_token = tf.constant([0])
+
+    feat_size = hparams[HP_MEL_BINS.name] * hparams[HP_DOWNSAMPLE_FACTOR.name]
+
+    @tf.function(input_signature=[
+        tf.TensorSpec(shape=[None, None, feat_size], dtype=tf.float32),
+        tf.TensorSpec(shape=[], dtype=tf.int32)])
     def greedy_decode(inputs, max_length=None):
 
         inputs = tf.expand_dims(inputs[0], axis=0)
@@ -30,7 +40,7 @@ def greedy_decode_fn(model, start_token=0):
         enc_length = tf.shape(encoded)[1]
 
         i_0 = tf.constant(0)
-        outputs_0 = tf.convert_to_tensor([[start_token]])
+        outputs_0 = tf.expand_dims(start_token, axis=0)
         max_reached_0 = tf.constant(False)
 
         time_cond = lambda i, outputs, max_reached: tf.logical_and(
@@ -38,7 +48,8 @@ def greedy_decode_fn(model, start_token=0):
 
         def time_step_body(i, outputs, max_reached):
 
-            inp_enc = encoded[:, i, :]
+            inp_enc = tf.expand_dims(encoded[:, i, :],
+                axis=1)
 
             _outputs_0 = outputs
             _max_reached_0 = max_reached
@@ -56,13 +67,13 @@ def greedy_decode_fn(model, start_token=0):
 
                 predicted_id = tf.cast(
                     tf.argmax(preds, axis=-1), dtype=tf.int32)
-                
+
                 if predicted_id == 0:
                     dec_end = True
                 else:
                     _outputs = tf.concat([_outputs, [[predicted_id]]],
                         axis=1)
-                
+
                 if max_length is not None and tf.shape(_outputs)[1] >= max_length + 1:
                     _max_reached = True
 
@@ -83,12 +94,16 @@ def greedy_decode_fn(model, start_token=0):
             time_cond, time_step_body,
             loop_vars=[i_0, outputs_0, max_reached_0],
             shape_invariants=[
-                i_0.get_shape(), 
-                tf.TensorShape([1, None]), 
+                i_0.get_shape(),
+                tf.TensorShape([1, None]),
                 max_reached_0.get_shape()
             ])
 
-        return outputs[:, 1:]
+        final_outputs = outputs[:, 1:]
+        # output_ids = tf.argmax(final_outputs, axis=-1)
+
+        # return tf.cast(output_ids, dtype=tf.int32)
+        return tf.cast(final_outputs, dtype=tf.int32)
 
     return greedy_decode
 
@@ -190,5 +205,3 @@ def greedy_decode_fn(model, start_token=0):
 # greedy_decode = greedy_decode_fn(model)
 
 # print(greedy_decode(a, max_length=20))
-
-    

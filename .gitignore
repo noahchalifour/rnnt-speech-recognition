@@ -113,3 +113,4 @@ rsync_exclude.txt
 /scripts/send_to_server.sh
 /data_p
 /model_tmp
+/figs

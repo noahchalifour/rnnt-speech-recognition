@@ -4,7 +4,7 @@ import json
 import tensorflow as tf
 
 from utils import preprocessing, encoding
-from utils.data import common_voice
+from utils.data import librispeech
 from hparams import *
 
 
@@ -12,7 +12,7 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
     'data_dir', None,
-    'Directory to read Common Voice data from.')
+    'Directory to read Librispeech data from.')
 flags.DEFINE_string(
     'output_dir', './data',
     'Directory to save preprocessed data.')
@@ -50,22 +50,51 @@ def main(_):
 
     }
 
+    train_splits = [
+        'dev-clean'
+    ]
+
+    dev_splits = [
+        'dev-clean'
+    ]
+
+    test_splits = [
+        'dev-clean'
+    ]
+
+    # train_splits = [
+    #     'train-clean-100',
+    #     'train-clean-360',
+    #     'train-other-500'
+    # ]
+
+    # dev_splits = [
+    #     'dev-clean',
+    #     'dev-other'
+    # ]
+
+    # test_splits = [
+    #     'test-clean',
+    #     'test-other'
+    # ]
+
     _hparams = {k.name: v for k, v in hparams.items()}
 
-    texts_gen = common_voice.texts_generator(FLAGS.data_dir)
+    texts_gen = librispeech.texts_generator(FLAGS.data_dir,
+        split_names=train_splits)
 
     encoder_fn, decoder_fn, vocab_size = encoding.get_encoder(
-        encoder_dir=FLAGS.output_dir,
+        output_dir=FLAGS.output_dir,
         hparams=_hparams,
         texts_generator=texts_gen)
     _hparams[HP_VOCAB_SIZE.name] = vocab_size
 
-    train_dataset = common_voice.load_dataset(
-        FLAGS.data_dir, 'train')
-    dev_dataset = common_voice.load_dataset(
-        FLAGS.data_dir, 'dev')
-    test_dataset = common_voice.load_dataset(
-        FLAGS.data_dir, 'test')
+    train_dataset = librispeech.load_dataset(
+        FLAGS.data_dir, train_splits)
+    dev_dataset = librispeech.load_dataset(
+        FLAGS.data_dir, dev_splits)
+    test_dataset = librispeech.load_dataset(
+        FLAGS.data_dir, test_splits)
 
     train_dataset = preprocessing.preprocess_dataset(
         train_dataset,
