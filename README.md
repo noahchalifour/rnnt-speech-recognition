@@ -15,7 +15,7 @@ To setup your environment, run the following command:
 ```
 git clone --recurse https://github.com/noahchalifour/rnnt-speech-recognition.git
 cd rnnt-speech-recognition
-pip install tensorflow==2.1.0 # or tensorflow-gpu==2.1.0 for GPU support
+pip install tensorflow==2.2.0 # or tensorflow-gpu==2.2.0 for GPU support
 pip install -r requirements.txt
 ```
 
@@ -53,16 +53,16 @@ python preprocess_common_voice.py \
 To train a simple model, run the following command:
 
 ```
-python run_common_voice.py \
+python run_rnnt.py \
     --mode train \
-    --data_dir <path to common voice directory>
+    --data_dir <path to data directory>
 ```
 
 <!-- #### Training in Docker Container
 
 [View Image](https://hub.docker.com/r/noahchalifour/rnnt-speech-recognition)
 
-You can also train your model in a docker container based on the Tensorflow docker image. 
+You can also train your model in a docker container based on the Tensorflow docker image.
 
 > **_NOTE:_** Specify all your paramters in ALL CAPS as environment variables when training in a docker container.
 
