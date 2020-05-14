@@ -11,7 +11,7 @@ import shutil
 import tensorflow as tf
 tf.get_logger().setLevel('WARNING')
 tf.autograph.set_verbosity(0)
-tf.random.set_seed(1234)
+# tf.random.set_seed(1234)
 
 from utils import preprocessing, vocabulary, encoding, \
     metrics, decoding
