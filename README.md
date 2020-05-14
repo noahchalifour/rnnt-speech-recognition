@@ -6,8 +6,6 @@ End-to-end speech recognition using RNN-Transducer in Tensorflow 2.0
 
 This speech recognition model is based off Google's [Streaming End-to-end Speech Recognition For Mobile Devices](https://arxiv.org/pdf/1811.06621.pdf) research paper and is implemented in Python 3 using Tensorflow 2.0
 
-> **_NOTE:_** If you are not training using docker you must run the following commands + setup the loss function (instructions for this can be found in `warp-transducer/tensorflow_binding`)
-
 ## Setup Your Environment
 
 To setup your environment, run the following command:
@@ -17,6 +15,7 @@ git clone --recurse https://github.com/noahchalifour/rnnt-speech-recognition.git
 cd rnnt-speech-recognition
 pip install tensorflow==2.2.0 # or tensorflow-gpu==2.2.0 for GPU support
 pip install -r requirements.txt
+./scripts/build_rnnt.sh # to setup the rnnt loss
 ```
 
 ## Common Voice
