@@ -84,7 +84,7 @@ def main(_):
         split_names=train_splits)
 
     encoder_fn, decoder_fn, vocab_size = encoding.get_encoder(
-        output_dir=FLAGS.output_dir,
+        encoder_dir=FLAGS.output_dir,
         hparams=_hparams,
         texts_generator=texts_gen)
     _hparams[HP_VOCAB_SIZE.name] = vocab_size
