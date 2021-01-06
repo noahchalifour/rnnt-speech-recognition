@@ -566,8 +566,7 @@ def main(_):
                 batch_size=FLAGS.batch_size,
                 hparams=hparams,
                 strategy=strategy,
-                metrics=[accuracy_fn, wer_fn],
-                gpus=gpus)
+                metrics=[accuracy_fn, wer_fn])
 
             validation_log_str = 'VALIDATION RESULTS: Time: {:.4f}, Loss: {:.4f}'.format(
                 time.time() - eval_start_time, eval_loss)
