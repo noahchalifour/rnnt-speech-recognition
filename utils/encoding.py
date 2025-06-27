@@ -76,9 +76,9 @@ def get_encoder(encoder_dir,
 
         if os.path.exists('{}.subwords'.format(encoder_filepath)):
             
-            encoder = tfds.core.deprecated.text.SubwordTextEncoder.load_from_file(encoder_filepath)
+            encoder = tfds.core.features.text.SubwordTextEncoder.load_from_file(encoder_filepath)
         else:
-            encoder = tfds.core.deprecated.text.SubwordTextEncoder.build_from_corpus(
+            encoder = tfds.core.features.text.SubwordTextEncoder.build_from_corpus(
                 corpus_generator=preprocessed_gen(),
                 target_vocab_size=hparams[HP_VOCAB_SIZE.name])
             os.makedirs(encoder_dir, exist_ok=True)
