@@ -1,0 +1,38 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+run_rnnt = "run_rnnt:main"
+transcribe_file = "transcribe_file:main"
+streaming_transcribe = "streaming_transcribe:main"
+preprocess_librispeech = "preprocess_librispeech:main"
+preprocess_common_voice = "preprocess_common_voice:main"
+quantize_model = "quantize_model:main"
+
+[tool.poetry]
+name = "rnnt-speech-recognition"
+version = "0.1.0"
+description = "End-to-end speech recognition using RNN-Transducer in Tensorflow 2.0"
+authors = ["Noah Chalifour <noah.chalifour@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/noahchalifour/rnnt-speech-recognition"
+keywords = ["speech", "recognition", "rnnt", "tensorflow", "machine-learning"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pydub = ">=0.25.1"
+scipy = ">=1.15.3"
+tqdm = ">=4.67.1"
+tensorflow = ">=2.19.0"
+tensorflow-metal = { version = ">=1.2.0", platform = "darwin" }
+tensorflow-datasets = ">=4.9.9"
+soundfile = ">=0.13.1"
+librosa = ">=0.11.0"
+matplotlib = ">=3.10.3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.4.1"
+

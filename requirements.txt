@@ -1,9 +1,0 @@
-pydub>=0.25.1
-scipy>=1.16.0
-tqdm>=4.67.1
-tensorflow>=2.19.0
-tensorflow-metal>=1.2.0; sys_platform == 'darwin'
-tensorflow-datasets>=4.9.9
-soundfile>=0.13.1
-librosa>=0.11.0
-matplotlib>=3.10.3
