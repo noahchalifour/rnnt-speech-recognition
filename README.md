@@ -1,27 +1,19 @@
 # RNN-Transducer Speech Recognition
 
-End-to-end speech recognition using RNN-Transducer in Tensorflow 2.0
+End-to-end speech recognition using RNN-Transducer in Tensorflow 2
 
 ## Overview
 
-This speech recognition model is based off Google's [Streaming End-to-end Speech Recognition For Mobile Devices](https://arxiv.org/pdf/1811.06621.pdf) research paper and is implemented in Python 3 using Tensorflow 2.0
-
-## Dependencies
-
-There are a couple of dependencies that you'll need to install before you can get started:
-
-- CMake
-- gcc and g++
+This speech recognition model is based off Google's [Streaming End-to-end Speech Recognition For Mobile Devices](https://arxiv.org/pdf/1811.06621.pdf) research paper and is implemented in Python 3 using Tensorflow 2
 
 ## Setup Your Environment
 
 To setup your environment, run the following command:
 
-```
-git clone --recurse https://github.com/noahchalifour/rnnt-speech-recognition.git
+```bash
+git clone https://github.com/noahchalifour/rnnt-speech-recognition.git
 cd rnnt-speech-recognition
 pip install -r requirements.txt
-./scripts/build_rnnt.sh # to setup the rnnt loss
 ```
 
 ## Common Voice
