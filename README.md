@@ -26,12 +26,21 @@ Before you can train a model on the Common Voice dataset, you must first convert
 
 > **_NOTE:_** Make sure you have `ffmpeg` installed on your computer, as it uses that to convert mp3 to wav
 
+```bash
+./scripts/common_voice_convert.sh \
+  data/cv/en/clips \       # Directory of the clips
+  4                        # Number of threads
 ```
-./scripts/common_voice_convert.sh <data_dir> <# of threads>
+
+Then you can run the following script to remove missing samples
+
+```bash
 python scripts/remove_missing_samples.py \
     --data_dir <data_dir> \
     --replace_old
 ```
+
+`data_dir` here refers to the `clips` directory inside the downloaded Common Voice data directory.
 
 ### Preprocessing dataset
 

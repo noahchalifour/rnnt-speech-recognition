@@ -9,7 +9,7 @@ N=${2:-1}
 
 mkdir -p "$DATA_DIR"
 
-FILES=$(ls "$DATA_DIR" | grep $FORMAT)
+FILES=("$DATA_DIR/*$FORMAT")
 
 thread() {
   local FILE_N=$1
